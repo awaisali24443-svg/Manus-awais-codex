@@ -38,9 +38,18 @@ class ToolExecutor:
         param_str = str(params).lower()
         return not any(pattern in param_str for pattern in self.blocked_patterns)
 
+    def _redact_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Redacts sensitive information from parameters for logging."""
+        redacted = params.copy()
+        for key in ["token", "api_key", "password", "secret"]:
+            if key in redacted:
+                redacted[key] = "***REDACTED***"
+        return redacted
+
     async def execute(self, tool_name: str, params: Dict[str, Any]) -> ToolResult:
         """Executes a tool securely with a 10-second timeout and output capture."""
-        logger.info(f"Executing tool: {tool_name} with params: {params}")
+        redacted_params = self._redact_params(params)
+        logger.info(f"Executing tool: {tool_name} with params: {redacted_params}")
         tool = self.registry.get_tool(tool_name)
         
         start_time = time.time()

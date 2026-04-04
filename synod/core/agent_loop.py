@@ -34,18 +34,38 @@ class AgentLoop:
             State.RETRY: self._handle_retry,
         }
 
+    def _get_latest_screenshot(self) -> Optional[str]:
+        """Reads the latest screenshot from the workspace if it was taken recently."""
+        import glob
+        import base64
+        import os
+        import time
+        screenshots_dir = os.path.join(os.path.dirname(__file__), "../../workspace/screenshots")
+        files = sorted(glob.glob(f"{screenshots_dir}/screenshot_*.png"), key=os.path.getmtime, reverse=True)
+        if files:
+            # Check if it's recent (e.g., within the last 60 seconds)
+            if time.time() - os.path.getmtime(files[0]) < 60:
+                try:
+                    with open(files[0], "rb") as f:
+                        return base64.b64encode(f.read()).decode('utf-8')
+                except Exception:
+                    pass
+        return None
+
     def _parse_react_response(self, response: str) -> dict:
         """Parses ReAct XML tags."""
         thought_match = re.search(r"<thought>(.*?)</thought>", response, re.DOTALL)
         tool_call_match = re.search(r"<tool_call>(.*?)</tool_call>", response, re.DOTALL)
         task_completed_match = re.search(r"<task_completed>(.*?)</task_completed>", response, re.DOTALL)
+        replan_match = re.search(r"<replan>(.*?)</replan>", response, re.DOTALL)
         
         result = {
             "thought": thought_match.group(1).strip() if thought_match else None,
             "tool_name": None,
             "tool_params": None,
             "completed": bool(task_completed_match),
-            "completion_summary": task_completed_match.group(1).strip() if task_completed_match else None
+            "completion_summary": task_completed_match.group(1).strip() if task_completed_match else None,
+            "replan": replan_match.group(1).strip() if replan_match else None
         }
         
         if tool_call_match:
@@ -123,7 +143,7 @@ class AgentLoop:
             task.task_id,
             "You are an autonomous agent analyzing a goal.",
             tool_schemas,
-            self.plan_writer.inject_into_context()
+            self.plan_writer.inject_into_context(task.plan)
         )
         observation = await self.llm_router.route(f"Understand the goal: {task.goal}", context)
         self.task_memory.save_event(task.task_id, "observation", observation, "MasterAgent")
@@ -143,7 +163,7 @@ class AgentLoop:
             self.task_manager.log_event(task.task_id, "No plan found to execute.")
             return State.FAIL
             
-        pending_step = next((s for s in task.plan if isinstance(s, dict) and s.get("status") == "PENDING"), None)
+        pending_step = next((s for s in task.plan if isinstance(s, dict) and s.get("status") in ["PENDING", "IN_PROGRESS"]), None)
         if not pending_step:
             self.task_manager.log_event(task.task_id, "All steps completed.")
             return State.OBSERVE
@@ -169,20 +189,39 @@ class AgentLoop:
                 task.task_id,
                 "You are an autonomous agent. Use tools to complete tasks.",
                 tool_schemas,
-                self.plan_writer.inject_into_context()
+                self.plan_writer.inject_into_context(task.plan)
             )
-            response = await self.llm_router.route(step_desc, context)
+            
+            image_data = None
+            last_action = task.monologue.get("actions", [])[-1] if task.monologue.get("actions") else None
+            if last_action and last_action.get("tool", "").startswith("browser_"):
+                image_data = self._get_latest_screenshot()
+                
+            response = await self.llm_router.route(step_desc, context, image_data)
             parsed = self._parse_react_response(response)
             
             if parsed["thought"]:
                 task.monologue["thoughts"].append(parsed["thought"])
                 self.task_manager.save_task(task)
                 self.task_manager.log_event(task.task_id, f"Thought: {parsed['thought']}")
+                
+            if parsed.get("replan"):
+                try:
+                    new_steps = json.loads(parsed["replan"]).get("steps", [])
+                    if new_steps:
+                        completed_steps = [s for s in task.plan if isinstance(s, dict) and s.get("status") == "COMPLETED"]
+                        new_plan_steps = [{"step_id": f"step_{len(completed_steps)+i+1}", "description": desc, "agent": "software_engineer", "tool": "none", "status": "PENDING"} for i, desc in enumerate(new_steps)]
+                        task.plan = completed_steps + new_plan_steps
+                        self.task_manager.log_event(task.task_id, f"Agent dynamically replanned: {new_steps}")
+                        self.task_manager.save_task(task)
+                        return State.EXECUTE
+                except Exception as e:
+                    self.task_manager.log_event(task.task_id, f"Failed to parse replan JSON: {e}")
             
             if parsed["completed"]:
                 self.task_manager.log_event(task.task_id, f"Completed: {parsed['completion_summary']}")
                 pending_step["status"] = "COMPLETED"
-                return State.EXECUTE if any(s.get("status") == "PENDING" for s in task.plan if isinstance(s, dict)) else State.OBSERVE
+                return State.EXECUTE if any(s.get("status") in ["PENDING", "IN_PROGRESS"] for s in task.plan if isinstance(s, dict)) else State.OBSERVE
             
             if parsed["tool_name"]:
                 self.task_manager.log_event(task.task_id, f"Tool Call: {parsed['tool_name']}")
@@ -215,7 +254,8 @@ class AgentLoop:
                     "Warning: LLM gave incomplete response. Nudging."
                 )
             
-        return State.RETRY
+        task.fail_or_retry()
+        return task.status
 
     async def _handle_observe(self, task):
         self.task_manager.log_event(task.task_id, "Observing results...")
@@ -236,6 +276,16 @@ class AgentLoop:
             self.task_memory.save_event(task.task_id, "observation", note, "system")
         msg = "Task successful." if all_done else "Task completed with failures."
         self.task_manager.log_event(task.task_id, msg)
+        
+        try:
+            summary = f"Task: {task.goal[:100]}. Result: {msg}"
+            self.global_memory.store_memory(summary, {
+                "task_id": task.task_id,
+                "status": "complete" if all_done else "partial"
+            })
+        except Exception:
+            pass  # never block completion on memory failure
+            
         return State.COMPLETE
 
     async def _handle_retry(self, task: TaskState) -> State:

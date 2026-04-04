@@ -13,7 +13,7 @@ def _enforce_workspace(path: str) -> str:
     # Remove leading slashes to prevent absolute path override
     clean_path = path.lstrip("/")
     abs_path = os.path.abspath(os.path.join(WORKSPACE_DIR, clean_path))
-    if not abs_path.startswith(WORKSPACE_DIR):
+    if os.path.commonpath([WORKSPACE_DIR, abs_path]) != WORKSPACE_DIR:
         raise PermissionError(f"Path {path} is outside the allowed workspace")
     return abs_path
 
@@ -89,6 +89,8 @@ def git_operations(action: str, repo_url: str, token: str = "", message: str = "
         elif action == "commit":
             subprocess.run(["git", "-C", repo_dir, "add", "."], capture_output=True, text=True, timeout=9.0)
             res = subprocess.run(["git", "-C", repo_dir, "commit", "-m", message], capture_output=True, text=True, timeout=9.0)
+            if res.returncode != 0 and "nothing to commit" in res.stdout:
+                return "Nothing to commit, working tree clean."
         elif action == "push":
             res = subprocess.run(["git", "-C", repo_dir, "push"], capture_output=True, text=True, timeout=9.0)
         else:

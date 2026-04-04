@@ -48,8 +48,25 @@ class PlanWriter:
         except Exception as e:
             logger.error(f"Failed to update step status: {e}")
 
-    def inject_into_context(self) -> str:
+    def inject_into_context(self, plan_data: list = None) -> str:
         """Returns todo.md as formatted string for LLM injection."""
+        if plan_data is not None:
+            if not plan_data:
+                return "## Current Objectives\n(No plan found)"
+            todo_lines = ["## Current Objectives"]
+            for step in plan_data:
+                step_id = step.get("step_id", "unknown")
+                desc = step.get("description", "")
+                status = step.get("status", "PENDING")
+                if status == "COMPLETED":
+                    todo_lines.append(f"- [x] {step_id}: {desc}")
+                elif status == "IN_PROGRESS":
+                    todo_lines.append(f"- [ ] {step_id}: {desc} ← IN PROGRESS")
+                else:
+                    todo_lines.append(f"- [ ] {step_id}: {desc}")
+            return "\n".join(todo_lines)
+
+        # Fallback to file reading if no plan_data provided
         if not os.path.exists(self.plan_path):
             return "## Current Objectives\n(No plan found)"
             

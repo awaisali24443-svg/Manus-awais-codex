@@ -39,7 +39,9 @@ class ResearchAgent:
                     "<tool_call>\n{\"name\": \"tool_name\", \"params\": {...}}\n</tool_call>\n"
                     "When task step is fully complete, output:\n"
                     "<thought>\n[Final reasoning]\n</thought>\n"
-                    "<task_completed>\n[Summary]\n</task_completed>"
+                    "<task_completed>\n[Summary]\n</task_completed>\n"
+                    "If you discover the current plan is fundamentally flawed or you are stuck, you can rewrite the remaining plan using:\n"
+                    "<replan>\n{\"steps\": [\"new step 1\", \"new step 2\"]}\n</replan>"
                 )
             },
             {

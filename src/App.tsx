@@ -14,6 +14,7 @@ const firebaseConfig = {
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -30,6 +31,7 @@ export default function App() {
   const [plan, setPlan] = useState([]);
   const [monologue, setMonologue] = useState({ observations: [], thoughts: [], actions: [] });
   const [error, setError] = useState(null);
+  const [screenshot, setScreenshot] = useState(null);
 
   const logsEndRef = useRef(null);
   const terminalEndRef = useRef(null);
@@ -82,6 +84,23 @@ export default function App() {
       unsubLogs();
     };
   }, [taskId]);
+
+  useEffect(() => {
+    if (!taskId || status !== 'RUNNING') return;
+    
+    const screenshotInterval = setInterval(async () => {
+        try {
+            const res = await fetch(
+                `${API_URL}/api/tasks/${taskId}/screenshot`,
+                { headers: { 'X-API-Key': SYNOD_API_KEY } }
+            );
+            const data = await res.json();
+            if (data.screenshot) setScreenshot(data.screenshot);
+        } catch {}
+    }, 2000);
+
+    return () => clearInterval(screenshotInterval);
+  }, [taskId, status]);
 
   const handleExecute = async () => {
     if (!goal.trim()) return;
@@ -314,6 +333,15 @@ export default function App() {
               <div ref={terminalEndRef} />
             </div>
           </section>
+
+          {screenshot && (
+              <section className="glass-card p-0 rounded-xl overflow-hidden flex flex-col">
+                  <div className="bg-black/60 px-4 py-2 border-b border-white/10 flex items-center gap-2">
+                      <span className="text-xs font-mono text-gray-400">🌐 Browser View (Live)</span>
+                  </div>
+                  <img src={screenshot} alt="Browser" className="w-full object-contain max-h-64"/>
+              </section>
+          )}
 
         </div>
       </div>

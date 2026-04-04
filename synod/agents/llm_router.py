@@ -17,7 +17,7 @@ class LLMRouter:
         self.max_retries = 3
         self.timeout = 30.0
 
-    async def route(self, step: str, context: str) -> str:
+    async def route(self, step: str, context: str, image_data: str = None) -> str:
         """
         Routes the step to the appropriate agent.
         Implements failover: if SoftwareEngineer fails, fallback to LogicAgent.
@@ -37,7 +37,7 @@ class LLMRouter:
             try:
                 if agent_name == "software_engineer":
                     return await asyncio.wait_for(
-                        self.software_engineer.generate_code(step, context),
+                        self.software_engineer.generate_code(step, context, image_data),
                         timeout=self.timeout
                     )
                 elif agent_name == "logic_agent":

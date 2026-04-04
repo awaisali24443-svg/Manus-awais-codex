@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,9 +45,7 @@ if not API_KEY:
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 async def get_api_key(api_key_header: str = Security(api_key_header)):
-    # In a real app, you'd want to enforce this. 
-    # For dev/preview, we'll allow it if it matches or if no key is provided (optional).
-    if api_key_header and api_key_header != API_KEY:
+    if not api_key_header or api_key_header != API_KEY:
         raise HTTPException(status_code=403, detail="Could not validate credentials")
     return api_key_header
 
@@ -79,7 +78,7 @@ async def create_task(request: TaskRequest, background_tasks: BackgroundTasks, a
     task = task_manager.create_task(request.goal)
     
     # Start the agent loop in the background
-    background_tasks.add_task(run_agent_workflow, task.task_id, request.goal)
+    asyncio.create_task(run_agent_workflow(task.task_id, request.goal))
     
     return {"task_id": task.task_id, "status": task.status.value}
 
@@ -106,6 +105,7 @@ async def run_agent_workflow(task_id: str, goal: str):
         task = task_manager.get_task(task_id)
         if task:
             task.fail_or_retry()
+            task_manager.save_task(task)
 
 @app.get("/api/tasks/{task_id}")
 async def get_task(task_id: str, api_key: str = Depends(get_api_key)):
@@ -116,16 +116,59 @@ async def get_task(task_id: str, api_key: str = Depends(get_api_key)):
     # Format logs for the frontend
     formatted_logs = [{"type": "info", "text": log} for log in task.logs]
     
+    completed_steps = sum(
+        1 for s in (task.plan or [])
+        if isinstance(s, dict) and s.get("status") == "COMPLETED"
+    )
+    total_steps = len(task.plan) if task.plan else 1
+    if task.status.value == "COMPLETE":
+        progress = 100
+    elif task.status.value == "FAIL":
+        progress = 0
+    elif total_steps > 0:
+        progress = int((completed_steps / total_steps) * 90) + 5
+    else:
+        progress = 10
+
+    # Map state to active agent name
+    state_to_agent = {
+        "IDLE": "Initializing",
+        "ANALYZE": "MasterAgent (Analyzing)",
+        "PLAN": "MasterAgent (Planning)",
+        "EXECUTE": f"Executing: {task.current_step[:25]}..." if task.current_step else "Executing",
+        "OBSERVE": "Observer",
+        "REFLECT": "Reflector",
+        "RETRY": "RetryEngine",
+        "COMPLETE": "Complete",
+        "FAIL": "Failed"
+    }
+    current_agent = state_to_agent.get(task.status.value, "MasterAgent")
+    
     return {
         "task_id": task.task_id,
         "status": task.status.value,
         "state": task.status.value,
-        "current_agent": task.current_step[:30] if task.current_step else "MasterAgent",
-        "progress": 50 if task.status.value not in ["COMPLETE", "FAIL"] else (100 if task.status.value == "COMPLETE" else 0),
+        "current_agent": current_agent,
+        "progress": progress,
         "logs": formatted_logs,
         "plan": getattr(task, 'plan', []),
         "monologue": task.monologue
     }
+
+@app.get("/api/tasks/{task_id}/screenshot")
+async def get_screenshot(task_id: str, api_key: str = Depends(get_api_key)):
+    import os, glob
+    screenshots_dir = os.path.join("workspace", "screenshots")
+    if not os.path.exists(screenshots_dir):
+        return {"screenshot": None}
+    files = sorted(glob.glob(f"{screenshots_dir}/screenshot_*.png"),
+                   key=os.path.getmtime, reverse=True)
+    if not files:
+        return {"screenshot": None}
+    import base64
+    with open(files[0], "rb") as f:
+        data = base64.b64encode(f.read()).decode()
+    return {"screenshot": f"data:image/png;base64,{data}"}
 
 @app.get("/api/tasks/{task_id}/logs")
 async def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):

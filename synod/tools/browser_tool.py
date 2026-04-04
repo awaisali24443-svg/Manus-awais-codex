@@ -62,9 +62,19 @@ class BrowserTool:
     async def browser_screenshot(self) -> str:
         await self._ensure_browser()
         import uuid
+        import glob
         filename = f"screenshot_{uuid.uuid4().hex[:8]}.png"
         path = os.path.join(SCREENSHOTS_DIR, filename)
         await self.page.screenshot(path=path)
+        
+        # Cleanup old screenshots, keep only the latest 5
+        try:
+            files = sorted(glob.glob(os.path.join(SCREENSHOTS_DIR, "screenshot_*.png")), key=os.path.getmtime, reverse=True)
+            for old_file in files[5:]:
+                os.remove(old_file)
+        except Exception as e:
+            pass # Ignore cleanup errors
+            
         return path
 
     async def close(self):

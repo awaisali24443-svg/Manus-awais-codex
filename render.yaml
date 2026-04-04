@@ -63,6 +63,8 @@ services:
         sync: false
       - key: VITE_FIREBASE_STORAGE_BUCKET
         sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
       - key: VITE_SYNOD_API_KEY
         sync: false
     routes:

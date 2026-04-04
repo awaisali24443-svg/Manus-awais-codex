@@ -1,33 +1,54 @@
+import subprocess
+import tempfile
 import os
 import logging
-import threading
-import io
-from contextlib import redirect_stdout, redirect_stderr
-from RestrictedPython import compile_restricted, safe_globals
 
 logger = logging.getLogger(__name__)
 
-def execute_safe_python(code: str, timeout: int = 10) -> dict:
-    """Executes Python code in a restricted environment."""
-    output = io.StringIO()
-    stderr = io.StringIO()
-    
-    def run():
-        try:
-            # Compile with restricted access
-            byte_code = compile_restricted(code, filename='<string>', mode='exec')
-            
-            # Run in safe environment
-            with redirect_stdout(output), redirect_stderr(stderr):
-                exec(byte_code, safe_globals, {})
-        except Exception as e:
-            print(f"Error: {e}", file=stderr)
+WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../workspace"))
 
-    thread = threading.Thread(target=run)
-    thread.start()
-    thread.join(timeout)
-    
-    if thread.is_alive():
-        return {"output": output.getvalue(), "stderr": "Execution timed out.", "success": False}
+def execute_safe_python(code: str, timeout: int = 15) -> dict:
+    """
+    Executes Python code in a Docker container for true sandboxing.
+    Falls back to standard subprocess if Docker is not available.
+    """
+    if not os.path.exists(WORKSPACE_DIR):
+        os.makedirs(WORKSPACE_DIR, exist_ok=True)
         
-    return {"output": output.getvalue(), "stderr": stderr.getvalue(), "success": not stderr.getvalue()}
+    with tempfile.NamedTemporaryFile(dir=WORKSPACE_DIR, suffix=".py", delete=False) as f:
+        f.write(code.encode('utf-8'))
+        temp_path = f.name
+        
+    filename = os.path.basename(temp_path)
+    
+    try:
+        # Check if Docker is available and running
+        docker_check = subprocess.run(["docker", "info"], capture_output=True, timeout=2)
+        use_docker = docker_check.returncode == 0
+    except Exception:
+        use_docker = False
+
+    try:
+        if use_docker:
+            res = subprocess.run(
+                ["docker", "run", "--rm", "--network", "none", "-v", f"{WORKSPACE_DIR}:/workspace", "-w", "/workspace", "python:3.11-slim", "python", filename],
+                capture_output=True, text=True, timeout=timeout
+            )
+        else:
+            res = subprocess.run(
+                ["python", temp_path],
+                capture_output=True, text=True, timeout=timeout
+            )
+    except subprocess.TimeoutExpired:
+        os.remove(temp_path)
+        return {"output": "", "stderr": "Execution timed out.", "success": False}
+    except Exception as e:
+        os.remove(temp_path)
+        return {"output": "", "stderr": str(e), "success": False}
+        
+    os.remove(temp_path)
+    return {
+        "output": res.stdout,
+        "stderr": res.stderr,
+        "success": res.returncode == 0
+    }

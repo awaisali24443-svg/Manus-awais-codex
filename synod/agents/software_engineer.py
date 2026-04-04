@@ -30,7 +30,7 @@ class SoftwareEngineer:
             await asyncio.sleep(sleep_time)
         self.last_request_time = time.time()
 
-    async def generate_code(self, task: str, context: str) -> str:
+    async def generate_code(self, task: str, context: str, image_data: str = None) -> str:
         """Generates final code based on task and context."""
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY is not set.")
@@ -54,16 +54,26 @@ class SoftwareEngineer:
             "<tool_call>\n{\"name\": \"tool_name\", \"params\": {...}}\n</tool_call>\n"
             "When task step is fully complete, output:\n"
             "<thought>\n[Final reasoning]\n</thought>\n"
-            "<task_completed>\n[Summary]\n</task_completed>"
+            "<task_completed>\n[Summary]\n</task_completed>\n"
+            "If you discover the current plan is fundamentally flawed or you are stuck, you can rewrite the remaining plan using:\n"
+            "<replan>\n{\"steps\": [\"new step 1\", \"new step 2\"]}\n</replan>"
         )
         prompt = f"Context:\n{context}\n\nTask:\n{task}"
+
+        if image_data:
+            content = [
+                {"type": "text", "text": prompt},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}}
+            ]
+        else:
+            content = prompt
 
         payload = {
             "model": self.model,
             "max_tokens": 4096,
             "system": system_prompt,
             "messages": [
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": content}
             ]
         }
 
