@@ -22,7 +22,7 @@ async def web_search(query: str) -> str:
     api_key = os.getenv("SERPAPI_KEY") or os.getenv("SERPAPI_API_KEY")
     if api_key:
         url = f"https://serpapi.com/search.json?q={urllib.parse.quote(query)}&api_key={api_key}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             results = resp.json().get("organic_results", [])
@@ -30,7 +30,7 @@ async def web_search(query: str) -> str:
     else:
         # Fallback to DuckDuckGo HTML snippet
         url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
             resp.raise_for_status()
             return resp.text[:2000] # Return a snippet of the HTML
@@ -41,7 +41,9 @@ def run_python(code: str) -> str:
     result = execute_safe_python(code)
     
     # ToolExecutor expects a string
-    return f"Output: {result['output']}\nStderr: {result['stderr']}"
+    if result['stderr']:
+        return f"Output: {result['output']}\nError: {result['stderr']}"
+    return result['output'] or "(no output)"
 
 def read_file(path: str) -> str:
     """Reads a file scoped to the workspace."""
@@ -55,7 +57,9 @@ def write_file(path: str, content: str) -> str:
     """Writes content to a file scoped to the workspace."""
     safe_path = _enforce_workspace(path)
     # Ensure parent directories exist
-    os.makedirs(os.path.dirname(safe_path), exist_ok=True)
+    parent_dir = os.path.dirname(safe_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     with open(safe_path, "w", encoding="utf-8") as f:
         f.write(content)
     return f"Successfully wrote to {path}"

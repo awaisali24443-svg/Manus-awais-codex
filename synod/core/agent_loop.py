@@ -100,10 +100,12 @@ class AgentLoop:
         except Exception as e:
             self.task_manager.log_event(task_id, f"Git push skipped: {e}")
         finally:
-            # Cleanup browser
-            from synod.tools.browser_tool import BrowserTool
-            browser = BrowserTool()
-            await browser.close()
+            try:
+                browser_tool = self.tool_executor.registry.get_tool("browser_open")
+                if browser_tool and hasattr(browser_tool.function, '__self__'):
+                    await browser_tool.function.__self__.close()
+            except Exception:
+                pass
 
     async def _handle_idle(self, task) -> State:
         return State.ANALYZE
@@ -198,6 +200,20 @@ class AgentLoop:
                         f"PREVIOUS ATTEMPT FAILED:\n{error_msg}\n"
                         f"Analyze this error and try a different approach."
                     )
+            elif not parsed["completed"]:
+                # LLM gave no tool call and no completion
+                # Inject a nudge into step_desc
+                step_desc = (
+                    f"{step_desc}\n\n"
+                    f"IMPORTANT: Your last response had no "
+                    f"<tool_call> or <task_completed> tag. "
+                    f"You MUST either call a tool or signal "
+                    f"task_completed. Try again."
+                )
+                self.task_manager.log_event(
+                    task.task_id, 
+                    "Warning: LLM gave incomplete response. Nudging."
+                )
             
         return State.RETRY
 

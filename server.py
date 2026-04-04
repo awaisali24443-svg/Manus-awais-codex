@@ -4,13 +4,36 @@ from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
+from contextlib import asynccontextmanager
+from google.cloud import firestore
 
 from synod.core.task_manager import TaskManager
 from synod.core.agent_loop import AgentLoop
+from synod.core.state_machine import State
 from synod.planning.planner import Planner
 from synod.planning.plan_writer import PlanWriter
 
-app = FastAPI(title="Synod API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # On startup: recover orphaned tasks
+    try:
+        docs = task_manager.tasks_collection.stream()
+        for doc in docs:
+            data = doc.to_dict()
+            if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
+                task_manager.tasks_collection.document(
+                    data["task_id"]
+                ).update({
+                    "status": "FAIL",
+                    "logs": firestore.ArrayUnion(
+                        ["Task marked FAIL: server restarted during execution"]
+                    )
+                })
+    except Exception as e:
+        print(f"Startup recovery failed: {e}")
+    yield
+
+app = FastAPI(title="Synod API", lifespan=lifespan)
 
 API_KEY = os.getenv("SYNOD_API_KEY")
 if not API_KEY:
@@ -27,13 +50,14 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
         raise HTTPException(status_code=403, detail="Could not validate credentials")
     return api_key_header
 
+frontend_url = os.getenv("FRONTEND_URL", "")
+origins = ["http://localhost:5173", "http://localhost:3000"]
+if frontend_url:
+    origins.insert(0, frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        os.getenv("FRONTEND_URL", "*"),
-        "http://localhost:5173",
-        "http://localhost:3000"
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,6 +95,8 @@ async def run_agent_workflow(task_id: str, goal: str):
         if task:
             task.plan = [{"step_id": p.step_id, "description": p.description, "agent": p.agent, "tool": p.tool, "status": p.status} for p in plan]
             task_manager.save_task(task)
+            
+        task_manager.update_state(task_id, State.ANALYZE)
             
         # Run the main agent loop
         await agent_loop.run(task_id)

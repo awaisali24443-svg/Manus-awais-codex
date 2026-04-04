@@ -3,7 +3,6 @@ uvicorn>=0.23.0
 pydantic>=2.0.0
 groq
 anthropic
-
 requests
 python-dotenv
 firebase-admin>=6.0.0

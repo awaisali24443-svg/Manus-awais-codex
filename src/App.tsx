@@ -5,6 +5,7 @@ import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { getDatabase, ref, onValue } from 'firebase/database';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || '';
 
 // Initialize Firebase (using env vars)
 const firebaseConfig = {
@@ -95,7 +96,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': SYNOD_API_KEY
+        },
         body: JSON.stringify({ goal })
       });
       if (!res.ok) throw new Error('Failed to create task');

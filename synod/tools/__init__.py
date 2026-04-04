@@ -32,7 +32,7 @@ __all__ = [
     "read_file",
     "write_file",
     "git_operations",
-    "browser_instance",
+    "BrowserTool",
     "deploy_to_render",
     "deploy_to_vercel"
 ]
