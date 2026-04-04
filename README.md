@@ -92,14 +92,14 @@ To enable full-stack features (task persistence, event streaming, and real-time 
 
 1. **Start the Backend**
    ```bash
-   uvicorn server:app --reload --port 3000
+   npm run serve
    ```
 
 2. **Start the Frontend**
    ```bash
    npm run dev
    ```
-   The frontend will be available at `http://localhost:3000`.
+   The frontend will be available at `http://localhost:5173`.
 
 ## How to Deploy
 

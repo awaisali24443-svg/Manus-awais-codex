@@ -53,17 +53,14 @@ class MasterAgent:
             {
                 "role": "system", 
                 "content": (
-                    "You are the Master Agent. Decompose the user's goal into a logical sequence of steps. "
-                    "Return ONLY a JSON object with a 'steps' key containing a list of strings. "
-                    "Available tools: run_python(code: str), web_search(query: str), read_file(path: str), "
-                    "write_file(path: str, content: str), git_operations(action: str, repo_url: str, token: str), "
-                    "browser_open(url: str), browser_click(selector: str), browser_extract(selector: str). "
-                    "Strict ReAct output format:\n"
-                    "<thought>\n[Reasoning]\n</thought>\n"
-                    "<tool_call>\n{\"name\": \"tool_name\", \"params\": {...}}\n</tool_call>\n"
-                    "When task step is fully complete, output:\n"
-                    "<thought>\n[Final reasoning]\n</thought>\n"
-                    "<task_completed>\n[Summary]\n</task_completed>"
+                    "You are the Master Agent. Your job is to "
+                    "decompose the user goal into a clear sequence "
+                    "of actionable steps. Return ONLY a valid JSON "
+                    "object with a 'steps' key containing a list "
+                    "of step description strings. "
+                    "Example: {\"steps\": [\"Search the web for X\", "
+                    "\"Write results to file Y\"]}. "
+                    "Do NOT include any other text, tags, or formatting."
                 )
             },
             {"role": "user", "content": goal}

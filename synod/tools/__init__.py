@@ -4,19 +4,20 @@ Synod Tools Module
 from .tool_registry import Tool, ToolRegistry
 from .executor import ToolExecutor, ToolResult
 from .builtin_tools import web_search, run_python, read_file, write_file, git_operations
-from .browser_tool import browser_instance
+from .browser_tool import BrowserTool
 from .deploy_tool import deploy_to_render, deploy_to_vercel
 
 def get_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
+    browser = BrowserTool()
     registry.register_tool(Tool("web_search", "Search the web", web_search, ["network"]))
     registry.register_tool(Tool("run_python", "Run python code", run_python, ["sandbox"]))
     registry.register_tool(Tool("read_file", "Read a file", read_file, ["fs_read"]))
     registry.register_tool(Tool("write_file", "Write a file", write_file, ["fs_write"]))
     registry.register_tool(Tool("git_operations", "Git operations", git_operations, ["network", "fs_write"]))
-    registry.register_tool(Tool("browser_open", "Open URL in browser", browser_instance.browser_open, ["network"]))
-    registry.register_tool(Tool("browser_click", "Click element in browser", browser_instance.browser_click, ["network"]))
-    registry.register_tool(Tool("browser_extract", "Extract text from browser", browser_instance.browser_extract, ["network"]))
+    registry.register_tool(Tool("browser_open", "Open URL in browser", browser.browser_open, ["network"]))
+    registry.register_tool(Tool("browser_click", "Click element in browser", browser.browser_click, ["network"]))
+    registry.register_tool(Tool("browser_extract", "Extract text from browser", browser.browser_extract, ["network"]))
     registry.register_tool(Tool("deploy_to_render", "Deploy to Render", deploy_to_render, ["network"]))
     registry.register_tool(Tool("deploy_to_vercel", "Deploy to Vercel", deploy_to_vercel, ["network"]))
     return registry

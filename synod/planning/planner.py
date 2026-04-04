@@ -20,13 +20,21 @@ class Planner:
         Takes a high-level goal, uses the master agent to decompose it,
         and returns a structured list of PlanSteps.
         """
-        steps_text = await self.master_agent.decompose_task(goal)
-        plan: List[PlanStep] = []
+        import asyncio
         
-        for i, desc in enumerate(steps_text):
-            agent = await self.master_agent.route_step(desc)
-            
-            # Simple heuristic for initial tool assignment
+        steps_text = await self.master_agent.decompose_task(goal)
+        if not steps_text:
+            return []
+        
+        agents = await asyncio.gather(
+            *[self.master_agent.route_step(desc) for desc in steps_text],
+            return_exceptions=True
+        )
+        
+        plan = []
+        for i, (desc, agent) in enumerate(zip(steps_text, agents)):
+            if isinstance(agent, Exception):
+                agent = "logic_agent"
             desc_lower = desc.lower()
             if "code" in desc_lower or "script" in desc_lower:
                 tool = "run_python"
@@ -36,7 +44,6 @@ class Planner:
                 tool = "write_file"
             else:
                 tool = "none"
-            
             plan.append(PlanStep(
                 step_id=f"step_{i+1}",
                 description=desc,
@@ -45,5 +52,4 @@ class Planner:
                 expected_output="Task completed successfully",
                 status="PENDING"
             ))
-            
         return plan

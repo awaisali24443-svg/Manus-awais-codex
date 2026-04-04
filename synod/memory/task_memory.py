@@ -79,14 +79,18 @@ class TaskMemory:
         if not events:
             return ""
             
-        recent_events = events[-20:]
-        older_events = events[:-20]
+        # Keep last 15 events raw
+        recent_events = events[-15:]
+        # Summarize older events (first 50 chars of each)
+        older_events = events[:-15]
         
         history = ""
         if older_events:
-            # In a real implementation, this would call ResearchAgent to summarize
-            # For now, we just truncate
-            history += f"[Compressed History: {len(older_events)} older events omitted...]\n\n"
+            history += "--- Older Events Summary ---\n"
+            for event in older_events[:20]: # Only summarize first 20 older events to avoid bloat
+                history += f"[{event['type'].upper()}] {event['content'][:50]}...\n"
+            if len(older_events) > 20:
+                history += f"...and {len(older_events) - 20} more events.\n\n"
             
         history += "--- Recent Events ---\n"
         for event in recent_events:

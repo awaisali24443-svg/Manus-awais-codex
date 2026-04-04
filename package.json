@@ -4,12 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run build && pip install -r requirements.txt && uvicorn server:app --host 0.0.0.0 --port 3000",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "start": "uvicorn server:app --host 0.0.0.0 --port 3000"
+    "dev": "vite",
+    "serve": "uvicorn server:app --reload",
+    "build": "vite build"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

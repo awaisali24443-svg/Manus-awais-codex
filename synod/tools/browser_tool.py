@@ -75,4 +75,4 @@ class BrowserTool:
             await self.playwright.stop()
             self.playwright = None
 
-browser_instance = BrowserTool()
+

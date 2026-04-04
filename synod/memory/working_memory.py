@@ -38,6 +38,14 @@ class WorkingMemory:
                 f"--- CURRENT PLAN (TODO.MD) ---\n{todo_md_content}\n"
             )
             
+            max_chars = self.max_tokens * self.chars_per_token
+            if len(raw_context) > max_chars:
+                # Keep system prompt + tools (first 1000 chars) always
+                header = raw_context[:1000]
+                # Truncate the middle, keep the end (most recent events)
+                tail = raw_context[-(max_chars - 1000):]
+                raw_context = header + "\n[...context truncated...]\n" + tail
+            
             logger.info(f"Successfully built working memory context for task_id: {task_id}")
             return raw_context
             

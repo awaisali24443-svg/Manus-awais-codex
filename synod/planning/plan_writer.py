@@ -61,6 +61,10 @@ class PlanWriter:
             lines = content.split('\n')
             todo_lines = ["## Current Objectives"]
             
+            step_id = None
+            status = None
+            description = None
+            
             for line in lines:
                 if line.startswith("## "):
                     # Extract step_id and status
@@ -68,13 +72,21 @@ class PlanWriter:
                     if len(parts) == 2:
                         step_id = parts[0].strip()
                         status = parts[1].strip()
-                        
+                elif line.startswith("**Description:** "):
+                    description = line[17:].strip()
+                    
+                    if step_id and status and description:
                         if status == "COMPLETED":
-                            todo_lines.append(f"- [x] {step_id}")
+                            todo_lines.append(f"- [x] {step_id}: {description}")
                         elif status == "IN_PROGRESS":
-                            todo_lines.append(f"- [ ] {step_id} (IN PROGRESS)")
+                            todo_lines.append(f"- [ ] {step_id}: {description} ← IN PROGRESS")
                         else:
-                            todo_lines.append(f"- [ ] {step_id}")
+                            todo_lines.append(f"- [ ] {step_id}: {description}")
+                        
+                        # Reset for next step
+                        step_id = None
+                        status = None
+                        description = None
                             
             return "\n".join(todo_lines)
         except Exception as e:

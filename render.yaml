@@ -1,23 +1,69 @@
 services:
+  # ── BACKEND ──────────────────────────
   - type: web
     name: synod-backend
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt && playwright install --with-deps chromium
+    startCommand: uvicorn server:app --host 0.0.0.0 --port 10000
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: SYNOD_API_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: HUGGINGFACE_API_KEY
+      - key: HF_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
         sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY_ID
+        sync: false
+      - key: FIREBASE_CLIENT_ID
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
       - key: GITHUB_TOKEN
         sync: false
-      - key: SERPAPI_KEY
+      - key: GITHUB_REPO_URL
         sync: false
+      - key: FRONTEND_URL
+        sync: false
+
+  # ── FRONTEND ─────────────────────────
+  - type: static
+    name: synod-frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_DATABASE_URL
+        sync: false
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

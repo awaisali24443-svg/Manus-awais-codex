@@ -99,13 +99,30 @@ class AgentLoop:
                 git_operations("push", repo, token)
         except Exception as e:
             self.task_manager.log_event(task_id, f"Git push skipped: {e}")
+        finally:
+            # Cleanup browser
+            from synod.tools.browser_tool import BrowserTool
+            browser = BrowserTool()
+            await browser.close()
 
     async def _handle_idle(self, task) -> State:
         return State.ANALYZE
 
     async def _handle_analyze(self, task) -> State:
         self.task_manager.log_event(task.task_id, "Analyzing goal...")
-        context = self.working_memory.build_context(task.task_id, "You are an autonomous agent.", "", "")
+        tool_schemas = (
+            "run_python(code: str) - Execute Python\n"
+            "web_search(query: str) - Search the web\n"
+            "read_file(path: str) - Read workspace file\n"
+            "write_file(path: str, content: str) - Write file\n"
+            "browser_open(url: str) - Open browser URL\n"
+        )
+        context = self.working_memory.build_context(
+            task.task_id,
+            "You are an autonomous agent analyzing a goal.",
+            tool_schemas,
+            self.plan_writer.inject_into_context()
+        )
         observation = await self.llm_router.route(f"Understand the goal: {task.goal}", context)
         self.task_memory.save_event(task.task_id, "observation", observation, "MasterAgent")
         return State.PLAN
@@ -169,9 +186,10 @@ class AgentLoop:
                 self.task_manager.log_event(task.task_id, f"Tool Call: {parsed['tool_name']}")
                 try:
                     result = await self.tool_executor.execute(parsed["tool_name"], parsed["tool_params"] or {})
-                    task.monologue["actions"].append({"tool": parsed["tool_name"], "result": str(result)})
+                    obs_content = result.output if result.success else f"TOOL ERROR: {result.stderr}"
+                    task.monologue["actions"].append({"tool": parsed["tool_name"], "result": str(obs_content)})
                     self.task_manager.save_task(task)
-                    self.task_memory.save_event(task.task_id, "observation", str(result), "system")
+                    self.task_memory.save_event(task.task_id, "observation", obs_content, "system")
                 except Exception as e:
                     error_msg = f"Tool {parsed['tool_name']} failed: {str(e)}"
                     self.task_memory.save_event(task.task_id, "error", error_msg, "system")
@@ -183,26 +201,55 @@ class AgentLoop:
             
         return State.RETRY
 
-    async def _handle_observe(self, task: TaskState) -> State:
+    async def _handle_observe(self, task):
         self.task_manager.log_event(task.task_id, "Observing results...")
-        await asyncio.sleep(1)
+        completed = [s for s in task.plan if isinstance(s, dict) and s.get("status") == "COMPLETED"]
+        failed = [s for s in task.plan if isinstance(s, dict) and s.get("status") == "FAILED"]
+        summary = f"Completed {len(completed)}/{len(task.plan)} steps. Failed: {len(failed)}."
+        self.task_memory.save_event(task.task_id, "observation", summary, "system")
+        task.monologue["observations"].append(summary)
+        self.task_manager.save_task(task)
         return State.REFLECT
 
-    async def _handle_reflect(self, task: TaskState) -> State:
+    async def _handle_reflect(self, task):
         self.task_manager.log_event(task.task_id, "Reflecting on execution...")
-        await asyncio.sleep(1)
+        all_done = all(s.get("status") == "COMPLETED" for s in task.plan if isinstance(s, dict))
+        failed = [s for s in task.plan if isinstance(s, dict) and s.get("status") == "FAILED"]
+        if failed:
+            note = f"{len(failed)} steps failed. Partial completion."
+            self.task_memory.save_event(task.task_id, "observation", note, "system")
+        msg = "Task successful." if all_done else "Task completed with failures."
+        self.task_manager.log_event(task.task_id, msg)
         return State.COMPLETE
 
     async def _handle_retry(self, task: TaskState) -> State:
-        self.task_manager.log_event(task.task_id, f"Retrying... (Attempt {task.retries_count})")
-        
-        # Inject last 3 error events prominently into context
+        self.task_manager.log_event(
+            task.task_id, 
+            f"Retrying... (Attempt {task.retries_count}/3)"
+        )
         events = self.task_memory.load_events(task.task_id)
-        error_events = [e for e in events if e.get("type") == "error"][-3:]
+        error_events = [
+            e for e in events 
+            if e.get("type") == "error"
+        ][-3:]
+        
         if error_events:
-            error_context = "\n".join([f"PREVIOUS ERROR: {e['content']}" for e in error_events])
-            self.task_manager.log_event(task.task_id, f"Injecting {len(error_events)} previous errors into context for retry.")
-            # In a full implementation, this error_context would be passed to the LLM
-            
+            error_context = "\n".join([
+                f"PREVIOUS ERROR: {e['content']}" 
+                for e in error_events
+            ])
+            # Save error context as observation so
+            # next ANALYZE pass sees it
+            self.task_memory.save_event(
+                task.task_id,
+                "observation",
+                f"RETRY CONTEXT:\n{error_context}",
+                "system"
+            )
+            self.task_manager.log_event(
+                task.task_id,
+                f"Injected {len(error_events)} errors into context."
+            )
+        
         await asyncio.sleep(1)
         return State.ANALYZE

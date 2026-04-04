@@ -1,10 +1,7 @@
 import os
-import asyncio
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Dict, Any
 
@@ -32,7 +29,11 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        os.getenv("FRONTEND_URL", "*"),
+        "http://localhost:5173",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,10 +101,31 @@ async def get_task(task_id: str, api_key: str = Depends(get_api_key)):
         "monologue": task.monologue
     }
 
-# Serve React App
-dist_path = os.path.join(os.path.dirname(__file__), "dist")
-if os.path.exists(dist_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
-    @app.get("/{full_path:path}")
-    async def catch_all(full_path: str):
-        return FileResponse(os.path.join(dist_path, "index.html"))
+@app.get("/api/tasks/{task_id}/logs")
+async def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task_id": task.task_id, "logs": task.logs}
+
+@app.get("/api/tasks")
+async def list_tasks(api_key: str = Depends(get_api_key)):
+    # Firestore query for all tasks
+    docs = task_manager.tasks_collection.stream()
+    tasks = []
+    for doc in docs:
+        data = doc.to_dict()
+        tasks.append({
+            "task_id": data.get("task_id"),
+            "goal": data.get("goal"),
+            "status": data.get("status")
+        })
+    return {"tasks": tasks}
+
+@app.get("/")
+async def health_check():
+    return {
+      "status": "online",
+      "service": "Synod Backend API",
+      "version": "1.0.0"
+    }

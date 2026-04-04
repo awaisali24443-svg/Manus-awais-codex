@@ -19,7 +19,7 @@ def _enforce_workspace(path: str) -> str:
 
 async def web_search(query: str) -> str:
     """Performs a web search using SerpAPI or falls back to DuckDuckGo HTML."""
-    api_key = os.getenv("SERPAPI_API_KEY")
+    api_key = os.getenv("SERPAPI_KEY") or os.getenv("SERPAPI_API_KEY")
     if api_key:
         url = f"https://serpapi.com/search.json?q={urllib.parse.quote(query)}&api_key={api_key}"
         async with httpx.AsyncClient() as client:
