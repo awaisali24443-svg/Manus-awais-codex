@@ -1,0 +1,67 @@
+import os
+import logging
+import httpx
+from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+class LogicAgent:
+    def __init__(self) -> None:
+        self.api_key = os.getenv("GROQ_API_KEY")
+        self.model = "deepseek-r1-distill-llama-70b"
+        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
+        self.timeout = 30.0
+
+    async def solve(self, problem: str, context: str) -> str:
+        """Solves algorithmic problems and performs debugging."""
+        if not self.api_key:
+            raise ValueError("GROQ_API_KEY is not set.")
+
+        logger.info(f"LogicAgent solving problem: {problem[:50]}...")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        messages = [
+            {
+                "role": "system", 
+                "content": (
+                    "You are a Logic Agent specializing in algorithms, logic puzzles, and debugging. "
+                    "Available tools: run_python(code: str), web_search(query: str), read_file(path: str), "
+                    "write_file(path: str, content: str), git_operations(action: str, repo_url: str, token: str), "
+                    "browser_open(url: str), browser_click(selector: str), browser_extract(selector: str). "
+                    "Strict ReAct output format:\n"
+                    "<thought>\n[Reasoning]\n</thought>\n"
+                    "<tool_call>\n{\"name\": \"tool_name\", \"params\": {...}}\n</tool_call>\n"
+                    "When task step is fully complete, output:\n"
+                    "<thought>\n[Final reasoning]\n</thought>\n"
+                    "<task_completed>\n[Summary]\n</task_completed>"
+                )
+            },
+            {
+                "role": "user", 
+                "content": f"Context:\n{context}\n\nProblem:\n{problem}"
+            }
+        ]
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(self.api_url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error occurred during LogicAgent API call: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Error occurred during LogicAgent API call: {e}")
+            raise

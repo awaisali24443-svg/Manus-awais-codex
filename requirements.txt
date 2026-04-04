@@ -1,0 +1,13 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+groq
+anthropic
+
+requests
+python-dotenv
+firebase-admin>=6.0.0
+playwright>=1.40.0
+RestrictedPython>=7.0
+httpx>=0.25.0
+supabase>=2.0.0

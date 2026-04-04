@@ -1,0 +1,3 @@
+"""
+Synod Core Module
+"""
