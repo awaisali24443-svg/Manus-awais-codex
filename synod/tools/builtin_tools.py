@@ -41,9 +41,17 @@ def run_python(code: str) -> str:
     result = execute_safe_python(code)
     
     # ToolExecutor expects a string
-    if result['stderr']:
+    if result['stderr'] and not result['success']:
         return f"Output: {result['output']}\nError: {result['stderr']}"
     return result['output'] or "(no output)"
+
+def run_bash(command: str) -> str:
+    """Executes a bash command in the persistent workspace container."""
+    from .sandbox import DevBox
+    result = DevBox.execute_bash(command)
+    if result['stderr'] and not result['success']:
+        return f"Output:\n{result['output']}\nError:\n{result['stderr']}"
+    return result['output'] or "(Command executed successfully with no output)"
 
 def read_file(path: str) -> str:
     """Reads a file scoped to the workspace."""
@@ -63,6 +71,20 @@ def write_file(path: str, content: str) -> str:
     with open(safe_path, "w", encoding="utf-8") as f:
         f.write(content)
     return f"Successfully wrote to {path}"
+
+def edit_file(path: str, target: str, replacement: str) -> str:
+    """Replaces the first exact occurrence of 'target' with 'replacement' in the file."""
+    safe_path = _enforce_workspace(path)
+    if not os.path.exists(safe_path):
+        return f"Error: File {path} does not exist."
+    with open(safe_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if target not in content:
+        return "Error: Target string not found in file. Ensure exact match including whitespace."
+    content = content.replace(target, replacement, 1)
+    with open(safe_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return f"Successfully edited {path}"
 
 def git_operations(action: str, repo_url: str, token: str = "", message: str = "Auto-commit from Synod") -> str:
     """Performs git clone, pull, push, or commit operations."""

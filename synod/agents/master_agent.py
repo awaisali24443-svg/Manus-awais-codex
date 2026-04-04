@@ -4,6 +4,7 @@ import logging
 import httpx
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+from synod.memory.global_memory import GlobalMemory
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ class MasterAgent:
         self.model = "openai/gpt-oss-120b"
         self.api_url = "https://api.groq.com/openai/v1/chat/completions"
         self.timeout = 30.0
+        self.global_memory = GlobalMemory()
 
     async def _call_api(self, messages: List[Dict[str, str]], response_format: str = "text") -> str:
         """Helper method to call the Groq API."""
@@ -49,20 +51,35 @@ class MasterAgent:
     async def decompose_task(self, goal: str) -> List[str]:
         """Decomposes a high-level goal into a list of actionable steps."""
         logger.info(f"Decomposing task: {goal}")
+        
+        # Proactive RAG: Search Global Memory for similar past tasks
+        past_context = ""
+        try:
+            similar_memories = self.global_memory.search_memory(goal, top_k=2)
+            if similar_memories:
+                past_context = "Here are successful plans from similar past tasks to use as reference:\n"
+                for mem in similar_memories:
+                    past_context += f"- Past Goal: {mem.get('content', '')}\n"
+                    past_context += f"  Past Plan: {mem.get('metadata', {}).get('plan', 'N/A')}\n"
+        except Exception as e:
+            logger.warning(f"Failed to retrieve global memory for RAG: {e}")
+
+        system_prompt = (
+            "You are the Master Agent. Your job is to "
+            "decompose the user goal into a clear sequence "
+            "of actionable steps. Return ONLY a valid JSON "
+            "object with a 'steps' key containing a list "
+            "of step description strings. "
+            "Example: {\"steps\": [\"Search the web for X\", "
+            "\"Write results to file Y\"]}. "
+            "Do NOT include any other text, tags, or formatting."
+        )
+        
+        if past_context:
+            system_prompt += f"\n\n{past_context}"
+
         messages = [
-            {
-                "role": "system", 
-                "content": (
-                    "You are the Master Agent. Your job is to "
-                    "decompose the user goal into a clear sequence "
-                    "of actionable steps. Return ONLY a valid JSON "
-                    "object with a 'steps' key containing a list "
-                    "of step description strings. "
-                    "Example: {\"steps\": [\"Search the web for X\", "
-                    "\"Write results to file Y\"]}. "
-                    "Do NOT include any other text, tags, or formatting."
-                )
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": goal}
         ]
         

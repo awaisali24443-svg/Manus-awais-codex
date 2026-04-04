@@ -47,7 +47,7 @@ class ToolExecutor:
         return redacted
 
     async def execute(self, tool_name: str, params: Dict[str, Any]) -> ToolResult:
-        """Executes a tool securely with a 10-second timeout and output capture."""
+        """Executes a tool securely with a 120-second timeout and output capture."""
         redacted_params = self._redact_params(params)
         logger.info(f"Executing tool: {tool_name} with params: {redacted_params}")
         tool = self.registry.get_tool(tool_name)
@@ -63,11 +63,11 @@ class ToolExecutor:
             return ToolResult(success=False, output="", stderr="Security violation: blocked pattern detected", execution_time=time.time() - start_time)
 
         try:
-            # Enforce 10s timeout
+            # Enforce 120s timeout for long-running tasks like npm install
             if asyncio.iscoroutinefunction(tool.function):
-                result = await asyncio.wait_for(tool.function(**params), timeout=10.0)
+                result = await asyncio.wait_for(tool.function(**params), timeout=120.0)
             else:
-                result = await asyncio.wait_for(asyncio.to_thread(tool.function, **params), timeout=10.0)
+                result = await asyncio.wait_for(asyncio.to_thread(tool.function, **params), timeout=120.0)
                 
             execution_time = time.time() - start_time
             logger.info(f"Tool {tool_name} executed successfully in {execution_time:.2f}s.")
@@ -83,8 +83,8 @@ class ToolExecutor:
             
         except asyncio.TimeoutError:
             execution_time = time.time() - start_time
-            logger.error(f"Tool {tool_name} timed out after 10s.")
-            return ToolResult(success=False, output="", stderr="Execution timed out after 10 seconds", execution_time=execution_time)
+            logger.error(f"Tool {tool_name} timed out after 120s.")
+            return ToolResult(success=False, output="", stderr="Execution timed out after 120 seconds", execution_time=execution_time)
         except Exception as e:
             execution_time = time.time() - start_time
             error_trace = traceback.format_exc()

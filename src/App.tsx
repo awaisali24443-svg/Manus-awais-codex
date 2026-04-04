@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, CheckCircle2, Circle, Terminal, Brain, Eye, Activity, AlertCircle } from 'lucide-react';
+import { Play, CheckCircle2, Circle, Terminal, Brain, Eye, Activity, AlertCircle, Box, GitBranch, Database } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { getDatabase, ref, onValue } from 'firebase/database';
@@ -32,6 +32,8 @@ export default function App() {
   const [monologue, setMonologue] = useState({ observations: [], thoughts: [], actions: [] });
   const [error, setError] = useState(null);
   const [screenshot, setScreenshot] = useState(null);
+  const [devBoxStatus, setDevBoxStatus] = useState('Offline');
+  const [replanCount, setReplanCount] = useState(0);
 
   const logsEndRef = useRef(null);
   const terminalEndRef = useRef(null);
@@ -76,6 +78,21 @@ export default function App() {
           text: l.content || l.message || '',
           timestamp: l.timestamp 
         })));
+        
+        // Parse infrastructure and replan events
+        let replans = 0;
+        let dbStatus = 'Offline';
+        logsArray.forEach(l => {
+          if (l.type === 'infrastructure') {
+            if (l.content && l.content.includes('Online')) dbStatus = 'Online';
+            if (l.content && l.content.includes('Offline')) dbStatus = 'Offline';
+          }
+          if (l.type === 'replan') {
+            replans++;
+          }
+        });
+        setDevBoxStatus(dbStatus);
+        setReplanCount(replans);
       }
     });
 
@@ -111,6 +128,8 @@ export default function App() {
     setLogs([{ type: 'info', text: `Initializing task: ${goal}`, timestamp: Date.now() }]);
     setPlan([]);
     setMonologue({ observations: [], thoughts: [], actions: [] });
+    setReplanCount(0);
+    setDevBoxStatus('Offline');
 
     try {
       const res = await fetch(`${API_URL}/api/tasks`, {
@@ -146,6 +165,8 @@ export default function App() {
     if (type === 'success' || text.toLowerCase().includes('success') || text.toLowerCase().includes('complete')) return 'text-green-400';
     if (text.toLowerCase().includes('executing') || text.toLowerCase().includes('running')) return 'text-yellow-400';
     if (text.toLowerCase().includes('agent')) return 'text-blue-400';
+    if (type === 'infrastructure') return 'text-purple-400';
+    if (type === 'replan') return 'text-orange-400';
     return 'text-gray-300';
   };
 
@@ -165,6 +186,22 @@ export default function App() {
           <span className={`text-sm font-medium tracking-wide ${getStatusColor(status)}`}>{status}</span>
         </div>
       </header>
+
+      {/* Capabilities Bar */}
+      <div className="flex flex-wrap gap-6 text-xs font-mono bg-black/20 p-3 rounded-lg border border-white/5">
+        <div className={`flex items-center gap-2 ${devBoxStatus === 'Online' ? 'text-green-400' : 'text-gray-500'}`}>
+            <Box className="w-4 h-4" /> DevBox: {devBoxStatus}
+        </div>
+        <div className={`flex items-center gap-2 ${screenshot ? 'text-purple-400' : 'text-gray-500'}`}>
+            <Eye className="w-4 h-4" /> Vision: {screenshot ? 'Active' : 'Standby'}
+        </div>
+        <div className={`flex items-center gap-2 ${replanCount > 0 ? 'text-orange-400' : 'text-gray-500'}`}>
+            <GitBranch className="w-4 h-4" /> Replans: {replanCount}
+        </div>
+        <div className="flex items-center gap-2 text-blue-400">
+            <Database className="w-4 h-4" /> Vector DB: Connected
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-lg flex items-center gap-3">
@@ -293,13 +330,16 @@ export default function App() {
               <div className="flex flex-col bg-black/30 rounded-lg border border-white/5 overflow-hidden">
                 <div className="bg-[#00d4ff]/10 px-3 py-2 border-b border-[#00d4ff]/20 text-xs font-semibold text-[#00d4ff] uppercase tracking-wider">Actions</div>
                 <div className="p-3 overflow-y-auto custom-scrollbar flex-1 space-y-2">
-                  {monologue.actions.map((action, i) => (
-                    <p key={i} className="text-xs text-gray-300 bg-[#00d4ff]/5 p-2 rounded border border-[#00d4ff]/10 font-mono">
-                      {typeof action === 'object' 
-                        ? `[${action.tool}] ${action.result}` 
-                        : String(action)}
-                    </p>
-                  ))}
+                  {monologue.actions.map((action, i) => {
+                    const isBash = typeof action === 'object' && action.tool === 'run_bash';
+                    return (
+                      <p key={i} className={`text-xs p-2 rounded border font-mono ${isBash ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-[#00d4ff]/5 border-[#00d4ff]/10 text-gray-300'}`}>
+                        {typeof action === 'object' 
+                          ? `[${action.tool}] ${action.result}` 
+                          : String(action)}
+                      </p>
+                    );
+                  })}
                 </div>
               </div>
 

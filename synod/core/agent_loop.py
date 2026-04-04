@@ -83,6 +83,11 @@ class AgentLoop:
         task = self.task_manager.get_task(task_id)
         if not task:
             return
+            
+        # Start persistent DevBox container
+        from synod.tools.sandbox import DevBox
+        DevBox.start()
+        self.task_memory.save_event(task_id, "infrastructure", "DevBox Online", "system")
         
         # Step 2: try git pull safely
         try:
@@ -122,10 +127,13 @@ class AgentLoop:
         finally:
             try:
                 browser_tool = self.tool_executor.registry.get_tool("browser_open")
-                if browser_tool and hasattr(browser_tool.function, '__self__'):
-                    await browser_tool.function.__self__.close()
+                if browser_tool and getattr(browser_tool.function, '__self__', None):
+                    await getattr(browser_tool.function, '__self__').close()
             except Exception:
                 pass
+            # Stop DevBox when task is done
+            DevBox.stop()
+            self.task_memory.save_event(task_id, "infrastructure", "DevBox Offline", "system")
 
     async def _handle_idle(self, task) -> State:
         return State.ANALYZE
@@ -133,10 +141,12 @@ class AgentLoop:
     async def _handle_analyze(self, task) -> State:
         self.task_manager.log_event(task.task_id, "Analyzing goal...")
         tool_schemas = (
+            "run_bash(command: str) - Execute bash command in persistent container\n"
             "run_python(code: str) - Execute Python\n"
             "web_search(query: str) - Search the web\n"
             "read_file(path: str) - Read workspace file\n"
             "write_file(path: str, content: str) - Write file\n"
+            "edit_file(path: str, target: str, replacement: str) - Replace exact string in file\n"
             "browser_open(url: str) - Open browser URL\n"
         )
         context = self.working_memory.build_context(
@@ -175,10 +185,12 @@ class AgentLoop:
         # Inner ReAct loop
         for _ in range(10):
             tool_schemas = (
+                "run_bash(command: str) - Execute bash command in persistent container\n"
                 "run_python(code: str) - Execute Python\n"
                 "web_search(query: str) - Search the web\n"
                 "read_file(path: str) - Read workspace file\n"
                 "write_file(path: str, content: str) - Write file\n"
+                "edit_file(path: str, target: str, replacement: str) - Replace exact string in file\n"
                 "git_operations(action, repo_url, token) - Git\n"
                 "browser_open(url: str) - Open browser URL\n"
                 "browser_click(selector: str) - Click element\n"
@@ -213,6 +225,7 @@ class AgentLoop:
                         new_plan_steps = [{"step_id": f"step_{len(completed_steps)+i+1}", "description": desc, "agent": "software_engineer", "tool": "none", "status": "PENDING"} for i, desc in enumerate(new_steps)]
                         task.plan = completed_steps + new_plan_steps
                         self.task_manager.log_event(task.task_id, f"Agent dynamically replanned: {new_steps}")
+                        self.task_memory.save_event(task.task_id, "replan", f"Dynamically replanned {len(new_steps)} steps", "system")
                         self.task_manager.save_task(task)
                         return State.EXECUTE
                 except Exception as e:
@@ -281,7 +294,8 @@ class AgentLoop:
             summary = f"Task: {task.goal[:100]}. Result: {msg}"
             self.global_memory.store_memory(summary, {
                 "task_id": task.task_id,
-                "status": "complete" if all_done else "partial"
+                "status": "complete" if all_done else "partial",
+                "plan": json.dumps(task.plan)
             })
         except Exception:
             pass  # never block completion on memory failure
