@@ -101,8 +101,15 @@ def edit_file(path: str, target: str, replacement: str) -> str:
         f.write(content)
     return f"Successfully edited {path}"
 
-def git_operations(action: str, repo_url: str, token: str = "", message: str = "Auto-commit from Synod") -> str:
+def git_operations(action: str, repo_url: str = "", token: str = "", message: str = "Auto-commit from Synod") -> str:
     """Performs git clone, pull, push, or commit operations."""
+    # Use environment variables as defaults if not provided
+    repo_url = repo_url or os.getenv("GITHUB_REPO_URL", "")
+    token = token or os.getenv("GITHUB_TOKEN", "")
+    
+    if not repo_url:
+        return "Error: repo_url is required for git operations and GITHUB_REPO_URL is not set."
+
     if token and "://" in repo_url:
         parts = repo_url.split("://")
         auth_url = f"{parts[0]}://oauth2:{token}@{parts[1]}"

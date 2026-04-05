@@ -3,8 +3,6 @@ import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-E2B_API_KEY = os.getenv("E2B_API_KEY")
-
 class DevBox:
     _sandbox = None
 
@@ -13,6 +11,7 @@ class DevBox:
         """Start E2B cloud sandbox if not running."""
         if cls._sandbox:
             return cls._sandbox
+        E2B_API_KEY = os.getenv("E2B_API_KEY")
         if not E2B_API_KEY:
             logger.warning("E2B_API_KEY not set. Sandbox unavailable.")
             return None

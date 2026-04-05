@@ -158,7 +158,9 @@ async def get_task(task_id: str, api_key: str = Depends(get_api_key)):
 @app.get("/api/tasks/{task_id}/screenshot")
 async def get_screenshot(task_id: str, api_key: str = Depends(get_api_key)):
     import os, glob
-    screenshots_dir = os.path.join("workspace", "screenshots")
+    screenshots_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "workspace", "screenshots")
+    )
     if not os.path.exists(screenshots_dir):
         return {"screenshot": None}
     files = sorted(glob.glob(f"{screenshots_dir}/screenshot_*.png"),

@@ -355,7 +355,7 @@ export default function App() {
                   <div className="flex-1 relative bg-white">
                     {screenshot ? (
                       <img 
-                        src={`data:image/png;base64,${screenshot}`} 
+                        src={screenshot} 
                         alt="Browser View" 
                         className="w-full h-full object-contain"
                       />
@@ -378,15 +378,31 @@ export default function App() {
                           <span className="text-[11px] font-bold uppercase tracking-wider text-manus-text-secondary">Terminal</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 bg-green-500 rounded-full" />
-                          <span className="text-[10px] font-medium text-manus-text-secondary">bash</span>
+                          <button onClick={() => setLogFilter('All')}
+                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                              logFilter === 'All' ? 'bg-white/10 text-white' 
+                              : 'hover:bg-white/5 text-gray-400'}`}>
+                            All Logs
+                          </button>
+                          <button onClick={() => setLogFilter('Errors')}
+                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                              logFilter === 'Errors' ? 'bg-white/10 text-white' 
+                              : 'hover:bg-white/5 text-gray-400'}`}>
+                            Errors
+                          </button>
+                          <button onClick={() => setLogFilter('System')}
+                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                              logFilter === 'System' ? 'bg-white/10 text-white' 
+                              : 'hover:bg-white/5 text-gray-400'}`}>
+                            System
+                          </button>
                         </div>
                       </div>
                       <div className="flex-1 p-4 font-mono text-[12px] overflow-y-auto bg-black/5 custom-scrollbar">
-                        {logs.filter(l => l.type === 'tool').length === 0 ? (
+                        {logs.filter(l => ['tool','observation','infrastructure'].includes(l.type)).length === 0 ? (
                           <div className="text-gray-400 italic">No terminal output yet...</div>
                         ) : (
-                          logs.filter(l => l.type === 'tool').map((l, i) => (
+                          logs.filter(l => ['tool','observation','infrastructure'].includes(l.type)).map((l, i) => (
                             <div key={i} className="mb-1">
                               <span className="text-blue-500 mr-2">$</span>
                               <span className="text-gray-700">{l.text}</span>
@@ -452,12 +468,32 @@ export default function App() {
               {activeTab === 'logs' && (
                 <div className="absolute inset-0 flex flex-col bg-[#0D1117]">
                   <div className="p-4 border-b border-white/10 flex items-center gap-2">
-                    <button className="px-3 py-1 rounded-md bg-white/10 text-white text-[11px] font-medium">All Logs</button>
-                    <button className="px-3 py-1 rounded-md hover:bg-white/5 text-gray-400 text-[11px] font-medium">Errors</button>
-                    <button className="px-3 py-1 rounded-md hover:bg-white/5 text-gray-400 text-[11px] font-medium">System</button>
+                    <button onClick={() => setLogFilter('All')}
+                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        logFilter === 'All' ? 'bg-white/10 text-white' 
+                        : 'hover:bg-white/5 text-gray-400'}`}>
+                      All Logs
+                    </button>
+                    <button onClick={() => setLogFilter('Errors')}
+                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        logFilter === 'Errors' ? 'bg-white/10 text-white' 
+                        : 'hover:bg-white/5 text-gray-400'}`}>
+                      Errors
+                    </button>
+                    <button onClick={() => setLogFilter('System')}
+                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        logFilter === 'System' ? 'bg-white/10 text-white' 
+                        : 'hover:bg-white/5 text-gray-400'}`}>
+                      System
+                    </button>
                   </div>
                   <div className="flex-1 p-6 font-mono text-[12px] overflow-y-auto custom-scrollbar">
-                    {logs.map((log, i) => (
+                    {logs.filter(log => {
+                      if (logFilter === 'All') return true;
+                      if (logFilter === 'Errors') return log.type === 'error';
+                      if (logFilter === 'System') return log.type === 'infrastructure';
+                      return true;
+                    }).map((log, i) => (
                       <div key={i} className="mb-2 flex gap-4">
                         <span className="text-gray-600 w-20 flex-shrink-0">{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}</span>
                         <span className={`w-24 flex-shrink-0 font-bold uppercase tracking-tighter ${getLogColor(log.type)}`}>[{log.type}]</span>
