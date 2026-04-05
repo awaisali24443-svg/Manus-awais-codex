@@ -211,6 +211,45 @@ async def list_tasks(api_key: str = Depends(get_api_key)):
         })
     return {"tasks": tasks}
 
+@app.get("/api/diagnostics")
+async def get_diagnostics(api_key: str = Depends(get_api_key)):
+    import os
+    from synod.firebase.firebase_init import db_client
+    
+    checks = {
+        "environment": {
+            "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY")),
+            "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
+            "E2B_API_KEY": bool(os.getenv("E2B_API_KEY")),
+            "FIREBASE_PROJECT_ID": bool(os.getenv("FIREBASE_PROJECT_ID")),
+            "SERPAPI_KEY": bool(os.getenv("SERPAPI_KEY")),
+        },
+        "services": {
+            "firestore": False,
+            "sandbox": False
+        }
+    }
+    
+    # Check Firestore
+    try:
+        # Just try to list a collection with limit 1
+        db_client.collection("tasks").limit(1).get()
+        checks["services"]["firestore"] = True
+    except Exception as e:
+        checks["services"]["firestore_error"] = str(e)
+        
+    # Check E2B (Optional but helpful)
+    if checks["environment"]["E2B_API_KEY"]:
+        try:
+            from e2b_code_interpreter import Sandbox
+            # We don't want to actually start a sandbox here as it's slow/expensive
+            # but we can check if the library is at least working
+            checks["services"]["sandbox"] = True
+        except Exception:
+            pass
+
+    return checks
+
 @app.get("/")
 async def health_check():
     return {

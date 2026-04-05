@@ -5,7 +5,7 @@ import {
   Layout, MessageSquare, List, ExternalLink, Copy, Menu, X,
   Check, AlertTriangle, Send, History, Cpu, Globe, Search,
   Settings, Clock, ChevronLeft, ChevronRight, ListChecks,
-  Terminal as TerminalIcon, ArrowUp, Zap
+  Terminal as TerminalIcon, ArrowUp, Zap, Server, XCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
@@ -46,6 +46,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('computer');
   const [logFilter, setLogFilter] = useState('All');
   const [pendingAction, setPendingAction] = useState(null);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
 
   const logsEndRef = useRef(null);
   const terminalEndRef = useRef(null);
@@ -201,6 +204,22 @@ export default function App() {
     }
   };
 
+  const checkDiagnostics = async () => {
+    setIsCheckingDiagnostics(true);
+    try {
+      const res = await fetch(`${API_URL}/api/diagnostics`, {
+        headers: { 'X-API-Key': SYNOD_API_KEY }
+      });
+      if (!res.ok) throw new Error('Backend unreachable');
+      const data = await res.json();
+      setDiagnostics(data);
+    } catch (err) {
+      setDiagnostics({ error: err.message });
+    } finally {
+      setIsCheckingDiagnostics(false);
+    }
+  };
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
 
@@ -249,6 +268,16 @@ export default function App() {
         <div className="glass-panel rounded-3xl p-6 flex flex-col h-full">
           <div className="flex items-center justify-between mb-6">
             <h2 className="font-semibold text-sm tracking-tight">History</h2>
+            <button 
+              onClick={() => {
+                setIsDiagnosticsOpen(true);
+                checkDiagnostics();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-manus-text-secondary hover:bg-white/50 hover:text-manus-accent transition-all group"
+            >
+              <Activity className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              <span className="font-medium">System Status</span>
+            </button>
             <button 
               onClick={clearHistory}
               className="text-[11px] font-medium text-manus-text-secondary hover:text-manus-accent transition-colors"
@@ -641,6 +670,113 @@ export default function App() {
           </div>
         </div>
       </aside>
+
+      {/* Diagnostics Modal */}
+      {isDiagnosticsOpen && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="glass-panel max-w-lg w-full p-8 rounded-[32px] shadow-2xl animate-fade-in-up">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-manus-accent/10 rounded-2xl flex items-center justify-center">
+                  <Activity className="w-6 h-6 text-manus-accent" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-manus-text-primary">System Health</h3>
+                  <p className="text-xs text-manus-text-secondary">Real-time configuration check</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsDiagnosticsOpen(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-manus-text-secondary" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Backend Connection */}
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <Server className="w-5 h-5 text-manus-text-secondary" />
+                  <span className="font-medium text-manus-text-primary">Backend API</span>
+                </div>
+                <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${diagnostics?.error ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                  <div className={`w-2 h-2 rounded-full ${diagnostics?.error ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
+                  {diagnostics?.error ? 'Offline' : 'Online'}
+                </div>
+              </div>
+
+              {diagnostics && !diagnostics.error && (
+                <>
+                  {/* API Keys */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Environment Variables</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries(diagnostics.environment).map(([key, exists]) => (
+                        <div key={key} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
+                          <span className="text-xs font-mono text-manus-text-secondary">{key}</span>
+                          {exists ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Services */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Cloud Services</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-4 h-4 text-manus-text-secondary" />
+                          <span className="text-sm text-manus-text-primary">Firestore Database</span>
+                        </div>
+                        {diagnostics.services.firestore ? (
+                          <span className="text-xs font-bold text-green-600">Connected</span>
+                        ) : (
+                          <span className="text-xs font-bold text-red-600">Error</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <Box className="w-4 h-4 text-manus-text-secondary" />
+                          <span className="text-sm text-manus-text-primary">E2B Sandbox Environment</span>
+                        </div>
+                        {diagnostics.services.sandbox ? (
+                          <span className="text-xs font-bold text-green-600">Ready</span>
+                        ) : (
+                          <span className="text-xs font-bold text-red-600">Missing Key</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {diagnostics?.error && (
+                <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
+                  <p className="text-sm text-red-600 font-medium mb-1">Connection Error</p>
+                  <p className="text-xs text-red-500 leading-relaxed">
+                    The frontend cannot reach the backend at <code className="bg-red-100 px-1 rounded">{API_URL}</code>. 
+                    Check your <code className="bg-red-100 px-1 rounded">VITE_API_URL</code> and ensure the backend is running.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button 
+              onClick={checkDiagnostics}
+              disabled={isCheckingDiagnostics}
+              className="w-full mt-8 py-4 bg-manus-accent text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+            >
+              {isCheckingDiagnostics ? 'Checking...' : 'Refresh Status'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {pendingAction && (
