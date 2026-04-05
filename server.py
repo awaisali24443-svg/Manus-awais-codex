@@ -1,5 +1,6 @@
 import os
 import asyncio
+import urllib.request
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,8 +15,36 @@ from synod.core.state_machine import State
 from synod.planning.planner import Planner
 from synod.planning.plan_writer import PlanWriter
 
+async def ping_services():
+    frontend_url = os.getenv("FRONTEND_URL")
+    backend_url = os.getenv("BACKEND_URL") or os.getenv("VITE_API_URL")
+    
+    urls = []
+    if frontend_url: urls.append(("Frontend", frontend_url))
+    if backend_url: urls.append(("Backend", backend_url))
+    
+    if not urls:
+        print("PING: No URLs set (FRONTEND_URL or BACKEND_URL), skipping background ping.")
+        return
+    
+    print(f"PING: Starting background ping to {len(urls)} services every 10 minutes.")
+    while True:
+        for name, url in urls:
+            try:
+                # Use urllib to avoid extra dependencies
+                with urllib.request.urlopen(url, timeout=10) as response:
+                    print(f"PING: {name} ping successful ({response.status})")
+            except Exception as e:
+                print(f"PING: {name} ping failed: {e}")
+        
+        # Wait 10 minutes
+        await asyncio.sleep(600)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Start ping task
+    asyncio.create_task(ping_services())
+    
     # On startup: recover orphaned tasks
     try:
         docs = task_manager.tasks_collection.stream()
@@ -216,35 +245,48 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
     import os
     from synod.firebase.firebase_init import db_client
     
+    # Define all expected variables based on .env.example
+    expected_vars = [
+        "GROQ_API_KEY", "ANTHROPIC_API_KEY", "HUGGINGFACE_API_KEY", "HF_API_KEY",
+        "SERPAPI_KEY", "SUPABASE_URL", "SUPABASE_KEY", "FIREBASE_PROJECT_ID",
+        "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY", "FIREBASE_PRIVATE_KEY_ID",
+        "FIREBASE_CLIENT_ID", "FIREBASE_DATABASE_URL", "FIREBASE_STORAGE_BUCKET",
+        "GITHUB_TOKEN", "GITHUB_REPO_URL", "SYNOD_API_KEY", "E2B_API_KEY",
+        "FRONTEND_URL", "BACKEND_URL"
+    ]
+    
+    env_status = {var: bool(os.getenv(var)) for var in expected_vars}
+    
     checks = {
-        "environment": {
-            "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY")),
-            "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
-            "E2B_API_KEY": bool(os.getenv("E2B_API_KEY")),
-            "FIREBASE_PROJECT_ID": bool(os.getenv("FIREBASE_PROJECT_ID")),
-            "SERPAPI_KEY": bool(os.getenv("SERPAPI_KEY")),
-        },
+        "environment": env_status,
         "services": {
             "firestore": False,
-            "sandbox": False
+            "sandbox": False,
+            "supabase": False
         }
     }
     
     # Check Firestore
     try:
-        # Just try to list a collection with limit 1
         db_client.collection("tasks").limit(1).get()
         checks["services"]["firestore"] = True
     except Exception as e:
         checks["services"]["firestore_error"] = str(e)
         
-    # Check E2B (Optional but helpful)
-    if checks["environment"]["E2B_API_KEY"]:
+    # Check E2B
+    if env_status.get("E2B_API_KEY"):
         try:
             from e2b_code_interpreter import Sandbox
-            # We don't want to actually start a sandbox here as it's slow/expensive
-            # but we can check if the library is at least working
             checks["services"]["sandbox"] = True
+        except Exception:
+            pass
+
+    # Check Supabase
+    if env_status.get("SUPABASE_URL") and env_status.get("SUPABASE_KEY"):
+        try:
+            from synod.firebase.firebase_init import supabase_client
+            if supabase_client:
+                checks["services"]["supabase"] = True
         except Exception:
             pass
 

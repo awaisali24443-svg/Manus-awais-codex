@@ -69,6 +69,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Keep-alive ping for backend (every 10 minutes)
+    const pingBackend = async () => {
+      try {
+        await fetch(`${API_URL}/`, { method: 'GET' });
+        console.log('PING: Backend ping successful');
+      } catch (err) {
+        console.error('PING: Backend ping failed:', err);
+      }
+    };
+
+    const interval = setInterval(pingBackend, 600000); // 10 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(null), 5000);
       return () => clearTimeout(timer);
@@ -710,32 +725,62 @@ export default function App() {
                 <>
                   {/* API Keys */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Environment Variables</h4>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center justify-between px-1">
+                      <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider">Backend Environment</h4>
+                      <span className="text-[10px] font-bold text-manus-accent bg-manus-accent/10 px-2 py-0.5 rounded-full">
+                        {Object.values(diagnostics.environment).filter(v => v).length} / {Object.keys(diagnostics.environment).length} Set
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
                       {Object.entries(diagnostics.environment).map(([key, exists]) => (
-                        <div key={key} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
-                          <span className="text-xs font-mono text-manus-text-secondary">{key}</span>
+                        <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+                          <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
                           {exists ? (
-                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
                           ) : (
-                            <XCircle className="w-4 h-4 text-red-500" />
+                            <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
                           )}
                         </div>
                       ))}
                     </div>
                   </div>
 
+                  {/* Frontend Variables */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Frontend (VITE) Variables</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        'VITE_API_URL', 'VITE_SYNOD_API_KEY', 'VITE_FIREBASE_API_KEY', 
+                        'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'
+                      ].map(key => {
+                        const exists = !!import.meta.env[key];
+                        return (
+                          <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+                            <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
+                            {exists ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Services */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Cloud Services</h4>
-                    <div className="space-y-2">
+                    <div className="grid grid-cols-1 gap-2">
                       <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
                         <div className="flex items-center gap-2">
                           <Database className="w-4 h-4 text-manus-text-secondary" />
                           <span className="text-sm text-manus-text-primary">Firestore Database</span>
                         </div>
                         {diagnostics.services.firestore ? (
-                          <span className="text-xs font-bold text-green-600">Connected</span>
+                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Connected
+                          </span>
                         ) : (
                           <span className="text-xs font-bold text-red-600">Error</span>
                         )}
@@ -746,9 +791,24 @@ export default function App() {
                           <span className="text-sm text-manus-text-primary">E2B Sandbox Environment</span>
                         </div>
                         {diagnostics.services.sandbox ? (
-                          <span className="text-xs font-bold text-green-600">Ready</span>
+                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Ready
+                          </span>
                         ) : (
-                          <span className="text-xs font-bold text-red-600">Missing Key</span>
+                          <span className="text-xs font-bold text-red-600">Not Configured</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-manus-text-secondary" />
+                          <span className="text-sm text-manus-text-primary">Supabase Vector Memory</span>
+                        </div>
+                        {diagnostics.services.supabase ? (
+                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Ready
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-red-600">Not Configured</span>
                         )}
                       </div>
                     </div>
