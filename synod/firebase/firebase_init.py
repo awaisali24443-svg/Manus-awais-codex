@@ -11,8 +11,8 @@ def initialize_firebase():
         database_url = os.getenv("FIREBASE_DATABASE_URL")
         
         if project_id and client_email and private_key:
-            # Replace literal \n with actual newlines if they are escaped
-            private_key = private_key.replace('\\n', '\n')
+            # Clean the private key: strip whitespace/quotes and replace literal \n with actual newlines
+            private_key = private_key.strip().strip('"').strip("'").replace('\\n', '\n')
             cred = credentials.Certificate({
                 "type": "service_account",
                 "project_id": project_id,
