@@ -3,7 +3,7 @@ Synod Tools Module
 """
 from .tool_registry import Tool, ToolRegistry
 from .executor import ToolExecutor, ToolResult
-from .builtin_tools import web_search, run_python, run_bash, read_file, write_file, edit_file, git_operations
+from .builtin_tools import web_search, run_python, run_bash, get_preview_url, read_file, write_file, edit_file, git_operations
 from .browser_tool import BrowserTool
 from .deploy_tool import deploy_to_render, deploy_to_vercel
 
@@ -13,6 +13,7 @@ def get_default_registry() -> ToolRegistry:
     registry.register_tool(Tool("web_search", "Search the web", web_search, ["network"]))
     registry.register_tool(Tool("run_python", "Run python code", run_python, ["sandbox"]))
     registry.register_tool(Tool("run_bash", "Run bash command", run_bash, ["sandbox"]))
+    registry.register_tool(Tool("get_preview_url", "Get public URL for app running in sandbox", get_preview_url, ["network"]))
     registry.register_tool(Tool("read_file", "Read a file", read_file, ["fs_read"]))
     registry.register_tool(Tool("write_file", "Write a file", write_file, ["fs_write"]))
     registry.register_tool(Tool("edit_file", "Edit a file by replacing a target string", edit_file, ["fs_write"]))
@@ -31,6 +32,8 @@ __all__ = [
     "ToolResult",
     "web_search",
     "run_python",
+    "run_bash",
+    "get_preview_url",
     "read_file",
     "write_file",
     "git_operations",

@@ -72,15 +72,15 @@ class TaskManager:
             "monologue": task.monologue
         })
 
-    def log_event(self, task_id: str, message: str) -> None:
-        """Appends a log message to a task in Firestore and RTDB."""
+    def log_event(self, task_id: str, message: str, log_type: str = "log") -> None:
+        """Appends a log message to a task in Firestore and RTDB with a specific type."""
         from google.cloud import firestore
-        self.tasks_collection.document(task_id).update({"logs": firestore.ArrayUnion([message])})
+        self.tasks_collection.document(task_id).update({"logs": firestore.ArrayUnion([f"[{log_type.upper()}] {message}"])})
         
         # Stream to RTDB
         log_ref = rtdb_client.reference(f"tasks/{task_id}/events")
         log_ref.push({
-            "type": "log",
+            "type": log_type,
             "timestamp": time.time(),
             "content": message,
             "agent": "system"

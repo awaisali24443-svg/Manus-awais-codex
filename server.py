@@ -101,7 +101,7 @@ async def run_agent_workflow(task_id: str, goal: str):
         await agent_loop.run(task_id)
         
     except Exception as e:
-        task_manager.log_event(task_id, f"Workflow failed: {str(e)}")
+        task_manager.log_event(task_id, f"Workflow failed: {str(e)}", "error")
         task = task_manager.get_task(task_id)
         if task:
             task.fail_or_retry()

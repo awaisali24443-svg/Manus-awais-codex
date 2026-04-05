@@ -72,7 +72,12 @@ class MasterAgent:
             "of step description strings. "
             "Example: {\"steps\": [\"Search the web for X\", "
             "\"Write results to file Y\"]}. "
-            "Do NOT include any other text, tags, or formatting."
+            "Do NOT include any other text, tags, or formatting. "
+            "You have access to a persistent cloud VM with "
+            "Node.js 20, Python 3, npm, git, and full internet. "
+            "When tasks involve building apps or websites, "
+            "plan steps that use run_bash to install and run them, "
+            "then get_preview_url to expose them publicly."
         )
         
         if past_context:

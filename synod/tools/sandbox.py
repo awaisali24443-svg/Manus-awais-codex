@@ -1,111 +1,133 @@
-import subprocess
-import tempfile
 import os
 import logging
-import time
-import atexit
+from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../workspace"))
-CONTAINER_NAME = "synod-devbox"
+E2B_API_KEY = os.getenv("E2B_API_KEY")
 
 class DevBox:
-    _is_running = False
+    _sandbox = None
 
     @classmethod
     def start(cls):
-        if cls._is_running:
-            return
-            
-        if not os.path.exists(WORKSPACE_DIR):
-            os.makedirs(WORKSPACE_DIR, exist_ok=True)
-            
+        """Start E2B cloud sandbox if not running."""
+        if cls._sandbox:
+            return cls._sandbox
+        if not E2B_API_KEY:
+            logger.warning("E2B_API_KEY not set. Sandbox unavailable.")
+            return None
         try:
-            # Check if Docker is available
-            subprocess.run(["docker", "info"], capture_output=True, check=True)
-            
-            # Check if already running
-            res = subprocess.run(["docker", "ps", "-q", "-f", f"name={CONTAINER_NAME}"], capture_output=True, text=True)
-            if res.stdout.strip():
-                cls._is_running = True
-                return
-
-            logger.info("Starting persistent DevBox container (Node.js + Python3)...")
-            # Start persistent container
-            subprocess.run([
-                "docker", "run", "-d", "--rm",
-                "--name", CONTAINER_NAME,
-                "-v", f"{WORKSPACE_DIR}:/workspace",
-                "-w", "/workspace",
-                "-p", "3000:3000",
-                "-p", "5173:5173",
-                "-p", "8000:8000",
-                "node:20-bookworm",
-                "tail", "-f", "/dev/null"
-            ], capture_output=True)
-            
-            # Install python3-pip inside the container
-            subprocess.run(["docker", "exec", CONTAINER_NAME, "apt-get", "update"], capture_output=True)
-            subprocess.run(["docker", "exec", CONTAINER_NAME, "apt-get", "install", "-y", "python3-pip"], capture_output=True)
-            
-            cls._is_running = True
-            time.sleep(1)
+            from e2b_code_interpreter import Sandbox
+            logger.info("Starting E2B Cloud Sandbox...")
+            cls._sandbox = Sandbox(api_key=E2B_API_KEY, timeout=300)
+            # Pre-install Node.js
+            cls._sandbox.commands.run(
+                "curl -fsSL https://deb.nodesource.com/setup_20.x"
+                " | bash - && apt-get install -y nodejs 2>/dev/null",
+                timeout=120
+            )
+            logger.info("E2B Sandbox ready with Node.js")
+            return cls._sandbox
         except Exception as e:
-            logger.error(f"Failed to start DevBox Docker container: {e}")
+            logger.error(f"Failed to start E2B sandbox: {e}")
+            cls._sandbox = None
+            return None
 
     @classmethod
-    def stop(cls):
-        if cls._is_running:
-            logger.info("Stopping DevBox container...")
-            subprocess.run(["docker", "stop", CONTAINER_NAME], capture_output=True)
-            cls._is_running = False
-
-    @classmethod
-    def execute_bash(cls, command: str, timeout: int = 120) -> dict:
-        cls.start()
-        if not cls._is_running:
-            # Fallback to local subprocess if Docker failed to start
+    def execute_bash(cls, command: str, timeout: int = 300) -> dict:
+        """Execute bash command in E2B sandbox."""
+        sb = cls.start()
+        if not sb:
+            # Fallback: run locally in workspace dir
+            import subprocess
+            WORKSPACE_DIR = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "../../workspace")
+            )
+            os.makedirs(WORKSPACE_DIR, exist_ok=True)
             try:
-                res = subprocess.run(command, shell=True, cwd=WORKSPACE_DIR, capture_output=True, text=True, timeout=timeout)
-                return {"output": res.stdout, "stderr": res.stderr, "success": res.returncode == 0}
+                res = subprocess.run(
+                    command, shell=True,
+                    cwd=WORKSPACE_DIR,
+                    capture_output=True, text=True, timeout=timeout
+                )
+                return {
+                    "output": res.stdout,
+                    "stderr": res.stderr,
+                    "success": res.returncode == 0
+                }
             except Exception as e:
                 return {"output": "", "stderr": str(e), "success": False}
-
         try:
-            res = subprocess.run(
-                ["docker", "exec", CONTAINER_NAME, "bash", "-c", command],
-                capture_output=True, text=True, timeout=timeout
-            )
+            # Check if it is a background/server command
+            is_background = any(x in command for x in [
+                "npm run dev", "npm start", "nohup",
+                "uvicorn", "node server", "expo start"
+            ])
+            if is_background:
+                proc = sb.commands.run(command, background=True)
+                hostname = sb.get_host(3000)
+                return {
+                    "output": f"Server started. Public URL: https://{hostname}",
+                    "stderr": "",
+                    "success": True
+                }
+            result = sb.commands.run(command, timeout=timeout)
             return {
-                "output": res.stdout,
-                "stderr": res.stderr,
-                "success": res.returncode == 0
+                "output": result.stdout or "",
+                "stderr": result.stderr or "",
+                "success": result.error is None
             }
-        except subprocess.TimeoutExpired:
-            return {"output": "", "stderr": f"Command timed out after {timeout}s", "success": False}
         except Exception as e:
             return {"output": "", "stderr": str(e), "success": False}
 
-atexit.register(DevBox.stop)
+    @classmethod
+    def write_file(cls, path: str, content: str) -> dict:
+        """Write file directly to E2B sandbox filesystem."""
+        sb = cls.start()
+        if not sb:
+            return {"success": False, "error": "Sandbox not available"}
+        try:
+            sb.files.write(path, content)
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
-def execute_safe_python(code: str, timeout: int = 15) -> dict:
-    """
-    Executes Python code in the persistent DevBox container.
-    """
-    if not os.path.exists(WORKSPACE_DIR):
-        os.makedirs(WORKSPACE_DIR, exist_ok=True)
-        
-    with tempfile.NamedTemporaryFile(dir=WORKSPACE_DIR, suffix=".py", delete=False) as f:
-        f.write(code.encode('utf-8'))
-        temp_path = f.name
-        
-    filename = os.path.basename(temp_path)
-    result = DevBox.execute_bash(f"python3 {filename}", timeout=timeout)
-    
-    try:
-        os.remove(temp_path)
-    except Exception:
-        pass
-        
-    return result
+    @classmethod
+    def read_file(cls, path: str) -> dict:
+        """Read file from E2B sandbox filesystem."""
+        sb = cls.start()
+        if not sb:
+            return {"success": False, "content": "", "error": "Sandbox not available"}
+        try:
+            content = sb.files.read(path)
+            return {"success": True, "content": content}
+        except Exception as e:
+            return {"success": False, "content": "", "error": str(e)}
+
+    @classmethod
+    def get_public_url(cls, port: int = 3000) -> Optional[str]:
+        """Get public URL for a port running inside sandbox."""
+        sb = cls.start()
+        if not sb:
+            return None
+        try:
+            return f"https://{sb.get_host(port)}"
+        except Exception:
+            return None
+
+    @classmethod
+    def stop(cls):
+        """Safely close the E2B sandbox."""
+        if cls._sandbox:
+            try:
+                cls._sandbox.close()
+                logger.info("E2B Sandbox closed.")
+            except Exception:
+                pass
+            finally:
+                cls._sandbox = None
+
+
+def execute_safe_python(code: str, timeout: int = 30) -> dict:
+    """Execute Python code in E2B sandbox."""
+    return DevBox.execute_bash(f"python3 -c {repr(code)}", timeout=timeout)

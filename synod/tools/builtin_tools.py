@@ -53,8 +53,21 @@ def run_bash(command: str) -> str:
         return f"Output:\n{result['output']}\nError:\n{result['stderr']}"
     return result['output'] or "(Command executed successfully with no output)"
 
+def get_preview_url(port: int = 3000) -> str:
+    """Gets the public URL for a server running in the sandbox."""
+    from .sandbox import DevBox
+    url = DevBox.get_public_url(port)
+    if url:
+        return f"Your app is live at: {url}"
+    return "No server found on that port. Make sure to start it first."
+
 def read_file(path: str) -> str:
-    """Reads a file scoped to the workspace."""
+    """Reads file from E2B sandbox or local workspace."""
+    from .sandbox import DevBox
+    result = DevBox.read_file(path)
+    if result["success"]:
+        return result["content"]
+    # Fallback to local
     safe_path = _enforce_workspace(path)
     if not os.path.exists(safe_path):
         return f"Error: File {path} does not exist."
@@ -62,14 +75,16 @@ def read_file(path: str) -> str:
         return f.read()
 
 def write_file(path: str, content: str) -> str:
-    """Writes content to a file scoped to the workspace."""
+    """Writes content to local workspace and E2B sandbox."""
+    from .sandbox import DevBox
     safe_path = _enforce_workspace(path)
-    # Ensure parent directories exist
     parent_dir = os.path.dirname(safe_path)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
     with open(safe_path, "w", encoding="utf-8") as f:
         f.write(content)
+    # Mirror to E2B
+    DevBox.write_file(path, content)
     return f"Successfully wrote to {path}"
 
 def edit_file(path: str, target: str, replacement: str) -> str:

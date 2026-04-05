@@ -88,6 +88,7 @@ class AgentLoop:
         from synod.tools.sandbox import DevBox
         DevBox.start()
         self.task_memory.save_event(task_id, "infrastructure", "DevBox Online", "system")
+        self.task_manager.log_event(task_id, "DevBox Online", "infrastructure")
         
         # Step 2: try git pull safely
         try:
@@ -95,9 +96,9 @@ class AgentLoop:
             repo = os.getenv("GITHUB_REPO_URL", "")
             if token and repo:
                 git_operations("pull", repo, token)
-                self.task_manager.log_event(task_id, "Git pull successful.")
+                self.task_manager.log_event(task_id, "Git pull successful.", "infrastructure")
         except Exception as e:
-            self.task_manager.log_event(task_id, f"Git pull skipped: {e}")
+            self.task_manager.log_event(task_id, f"Git pull skipped: {e}", "infrastructure")
         
         # Step 3: main state loop
         while task.status not in [State.COMPLETE, State.FAIL]:
@@ -134,12 +135,13 @@ class AgentLoop:
             # Stop DevBox when task is done
             DevBox.stop()
             self.task_memory.save_event(task_id, "infrastructure", "DevBox Offline", "system")
+            self.task_manager.log_event(task_id, "DevBox Offline", "infrastructure")
 
     async def _handle_idle(self, task) -> State:
         return State.ANALYZE
 
     async def _handle_analyze(self, task) -> State:
-        self.task_manager.log_event(task.task_id, "Analyzing goal...")
+        self.task_manager.log_event(task.task_id, "Analyzing goal...", "thought")
         tool_schemas = (
             "run_bash(command: str) - Execute bash command in persistent container\n"
             "run_python(code: str) - Execute Python\n"
@@ -148,10 +150,11 @@ class AgentLoop:
             "write_file(path: str, content: str) - Write file\n"
             "edit_file(path: str, target: str, replacement: str) - Replace exact string in file\n"
             "browser_open(url: str) - Open browser URL\n"
+            "get_preview_url(port: int = 3000) - Get public URL for running app\n"
         )
         context = self.working_memory.build_context(
             task.task_id,
-            "You are an autonomous agent analyzing a goal.",
+            "You have a persistent E2B cloud VM with Node.js 20, Python 3, npm, git, and full internet access. Files and processes persist between tool calls. Use run_bash for npm install, starting servers, etc. Use get_preview_url to get the public URL after starting a server.",
             tool_schemas,
             self.plan_writer.inject_into_context(task.plan)
         )
@@ -160,14 +163,14 @@ class AgentLoop:
         return State.PLAN
 
     async def _handle_plan(self, task) -> State:
-        self.task_manager.log_event(task.task_id, "Checking plan...")
+        self.task_manager.log_event(task.task_id, "Checking plan...", "thought")
         if not task.plan:
             return State.FAIL
-        self.task_manager.log_event(task.task_id, f"Found {len(task.plan)} steps.")
+        self.task_manager.log_event(task.task_id, f"Found {len(task.plan)} steps.", "thought")
         return State.EXECUTE
 
     async def _handle_execute(self, task: TaskState) -> State:
-        self.task_manager.log_event(task.task_id, "Executing plan...")
+        self.task_manager.log_event(task.task_id, "Executing plan...", "thought")
         
         if not task.plan:
             self.task_manager.log_event(task.task_id, "No plan found to execute.")
@@ -195,11 +198,12 @@ class AgentLoop:
                 "browser_open(url: str) - Open browser URL\n"
                 "browser_click(selector: str) - Click element\n"
                 "browser_extract(selector: str) - Extract text\n"
+                "get_preview_url(port: int = 3000) - Get public URL for running app\n"
             )
 
             context = self.working_memory.build_context(
                 task.task_id,
-                "You are an autonomous agent. Use tools to complete tasks.",
+                "You have a persistent E2B cloud VM with Node.js 20, Python 3, npm, git, and full internet access. Files and processes persist between tool calls. Use run_bash for npm install, starting servers, etc. Use get_preview_url to get the public URL after starting a server.",
                 tool_schemas,
                 self.plan_writer.inject_into_context(task.plan)
             )
@@ -215,7 +219,7 @@ class AgentLoop:
             if parsed["thought"]:
                 task.monologue["thoughts"].append(parsed["thought"])
                 self.task_manager.save_task(task)
-                self.task_manager.log_event(task.task_id, f"Thought: {parsed['thought']}")
+                self.task_manager.log_event(task.task_id, f"Thought: {parsed['thought']}", "thought")
                 
             if parsed.get("replan"):
                 try:
@@ -224,7 +228,7 @@ class AgentLoop:
                         completed_steps = [s for s in task.plan if isinstance(s, dict) and s.get("status") == "COMPLETED"]
                         new_plan_steps = [{"step_id": f"step_{len(completed_steps)+i+1}", "description": desc, "agent": "software_engineer", "tool": "none", "status": "PENDING"} for i, desc in enumerate(new_steps)]
                         task.plan = completed_steps + new_plan_steps
-                        self.task_manager.log_event(task.task_id, f"Agent dynamically replanned: {new_steps}")
+                        self.task_manager.log_event(task.task_id, f"Agent dynamically replanned: {new_steps}", "replan")
                         self.task_memory.save_event(task.task_id, "replan", f"Dynamically replanned {len(new_steps)} steps", "system")
                         self.task_manager.save_task(task)
                         return State.EXECUTE
@@ -237,13 +241,14 @@ class AgentLoop:
                 return State.EXECUTE if any(s.get("status") in ["PENDING", "IN_PROGRESS"] for s in task.plan if isinstance(s, dict)) else State.OBSERVE
             
             if parsed["tool_name"]:
-                self.task_manager.log_event(task.task_id, f"Tool Call: {parsed['tool_name']}")
+                self.task_manager.log_event(task.task_id, f"Tool Call: {parsed['tool_name']}", "tool")
                 try:
                     result = await self.tool_executor.execute(parsed["tool_name"], parsed["tool_params"] or {})
                     obs_content = result.output if result.success else f"TOOL ERROR: {result.stderr}"
                     task.monologue["actions"].append({"tool": parsed["tool_name"], "result": str(obs_content)})
                     self.task_manager.save_task(task)
                     self.task_memory.save_event(task.task_id, "observation", obs_content, "system")
+                    self.task_manager.log_event(task.task_id, f"Observation: {str(obs_content)[:200]}...", "observation")
                 except Exception as e:
                     error_msg = f"Tool {parsed['tool_name']} failed: {str(e)}"
                     self.task_memory.save_event(task.task_id, "error", error_msg, "system")

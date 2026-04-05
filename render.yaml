@@ -5,8 +5,8 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt && playwright install --with-deps chromium
-    startCommand: uvicorn server:app --host 0.0.0.0 --port 10000
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -43,6 +43,8 @@ services:
       - key: GITHUB_REPO_URL
         sync: false
       - key: FRONTEND_URL
+        sync: false
+      - key: E2B_API_KEY
         sync: false
 
   # ── FRONTEND ─────────────────────────

@@ -4,13 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"uvicorn server:app --port 8000\" \"vite\"",
     "serve": "uvicorn server:app --reload",
-    "build": "vite build"
+    "build": "vite build",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
     "firebase": "^12.11.0",
     "lucide-react": "^0.546.0",
     "react": "^19.0.0",
