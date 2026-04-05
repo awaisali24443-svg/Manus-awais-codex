@@ -29,6 +29,7 @@ class AgentLoop:
             State.ANALYZE: self._handle_analyze,
             State.PLAN: self._handle_plan,
             State.EXECUTE: self._handle_execute,
+            State.CONFIRM: self._handle_confirm,
             State.OBSERVE: self._handle_observe,
             State.REFLECT: self._handle_reflect,
             State.RETRY: self._handle_retry,
@@ -151,10 +152,25 @@ class AgentLoop:
             "edit_file(path: str, target: str, replacement: str) - Replace exact string in file\n"
             "browser_open(url: str) - Open browser URL\n"
             "get_preview_url(port: int = 3000) - Get public URL for running app\n"
+            "scaffold_project(type: str, name: str) - Initialize new project (static, webapp, mobile)\n"
+            "schedule_task(goal: str, cron: str) - Schedule a recurring task\n"
         )
+        
+        system_instr = (
+            "You are Awais Codex, a production-ready autonomous AI agent. "
+            "You operate in a persistent, secure environment. "
+            "Your goal is to complete the user's task with high autonomy and precision. "
+            "Always reason step-by-step using <thought> tags. "
+            "Call tools using <tool_call>{\"name\": \"...\", \"params\": {...}}</tool_call>. "
+            "If a task is finished, use <task_completed>Summary</task_completed>. "
+            "If you need to change your plan, use <replan>{\"steps\": [...]}</replan>. "
+            "You have full system access. Prioritize native capabilities. "
+            "For sensitive actions (like deleting files or large git pushes), the system will automatically ask for user confirmation."
+        )
+
         context = self.working_memory.build_context(
             task.task_id,
-            "You have a persistent E2B cloud VM with Node.js 20, Python 3, npm, git, and full internet access. Files and processes persist between tool calls. Use run_bash for npm install, starting servers, etc. Use get_preview_url to get the public URL after starting a server.",
+            system_instr,
             tool_schemas,
             self.plan_writer.inject_into_context(task.plan)
         )
@@ -199,11 +215,25 @@ class AgentLoop:
                 "browser_click(selector: str) - Click element\n"
                 "browser_extract(selector: str) - Extract text\n"
                 "get_preview_url(port: int = 3000) - Get public URL for running app\n"
+                "scaffold_project(type: str, name: str) - Initialize new project (static, webapp, mobile)\n"
+                "schedule_task(goal: str, cron: str) - Schedule a recurring task\n"
+            )
+
+            system_instr = (
+                "You are Awais Codex, a production-ready autonomous AI agent. "
+                "You operate in a persistent, secure environment. "
+                "Your goal is to complete the user's task with high autonomy and precision. "
+                "Always reason step-by-step using <thought> tags. "
+                "Call tools using <tool_call>{\"name\": \"...\", \"params\": {...}}</tool_call>. "
+                "If a task is finished, use <task_completed>Summary</task_completed>. "
+                "If you need to change your plan, use <replan>{\"steps\": [...]}</replan>. "
+                "You have full system access. Prioritize native capabilities. "
+                "For sensitive actions (like deleting files or large git pushes), the system will automatically ask for user confirmation."
             )
 
             context = self.working_memory.build_context(
                 task.task_id,
-                "You have a persistent E2B cloud VM with Node.js 20, Python 3, npm, git, and full internet access. Files and processes persist between tool calls. Use run_bash for npm install, starting servers, etc. Use get_preview_url to get the public URL after starting a server.",
+                system_instr,
                 tool_schemas,
                 self.plan_writer.inject_into_context(task.plan)
             )
@@ -241,6 +271,30 @@ class AgentLoop:
                 return State.EXECUTE if any(s.get("status") in ["PENDING", "IN_PROGRESS"] for s in task.plan if isinstance(s, dict)) else State.OBSERVE
             
             if parsed["tool_name"]:
+                # Check for sensitive tools that require confirmation
+                sensitive_tools = ["run_bash", "git_operations", "write_file", "edit_file", "schedule_task"]
+                if parsed["tool_name"] in sensitive_tools:
+                    # Check if it's actually sensitive (e.g. rm, push, etc)
+                    is_sensitive = False
+                    if parsed["tool_name"] == "run_bash":
+                        cmd = parsed["tool_params"].get("command", "").lower()
+                        if any(x in cmd for x in ["rm ", "sudo ", "kill ", "apt ", "npm install"]):
+                            is_sensitive = True
+                    elif parsed["tool_name"] == "git_operations":
+                        if parsed["tool_params"].get("action") in ["push", "commit"]:
+                            is_sensitive = True
+                    elif parsed["tool_name"] == "write_file" or parsed["tool_name"] == "edit_file":
+                        is_sensitive = True # Always confirm file writes for now to be safe
+                    elif parsed["tool_name"] == "schedule_task":
+                        is_sensitive = True
+
+                    if is_sensitive:
+                        task.pending_action = {"name": parsed["tool_name"], "params": parsed["tool_params"]}
+                        task.status = State.CONFIRM
+                        self.task_manager.save_task(task)
+                        self.task_manager.log_event(task.task_id, f"Waiting for confirmation: {parsed['tool_name']}", "system")
+                        return State.CONFIRM
+
                 self.task_manager.log_event(task.task_id, f"Tool Call: {parsed['tool_name']}", "tool")
                 try:
                     result = await self.tool_executor.execute(parsed["tool_name"], parsed["tool_params"] or {})
@@ -273,6 +327,42 @@ class AgentLoop:
                 )
             
         task.fail_or_retry()
+        return task.status
+
+    async def _handle_confirm(self, task: TaskState) -> State:
+        # This state is handled by the API/Frontend. 
+        # The agent loop waits here until the status is changed back to EXECUTE by the API.
+        # However, since the loop is running, we need to poll or wait for a signal.
+        # In this implementation, we'll just sleep and check the status.
+        self.task_manager.log_event(task.task_id, "Waiting for user confirmation...")
+        while task.status == State.CONFIRM:
+            await asyncio.sleep(2)
+            # Refresh task from DB
+            updated_task = self.task_manager.get_task(task.task_id)
+            if updated_task:
+                task.status = updated_task.status
+                task.pending_action = updated_task.pending_action
+        
+        if task.status == State.EXECUTE and task.pending_action:
+            # User confirmed!
+            action = task.pending_action
+            task.pending_action = {} # Clear it
+            self.task_manager.save_task(task)
+            
+            self.task_manager.log_event(task.task_id, f"User confirmed action: {action['name']}", "system")
+            try:
+                result = await self.tool_executor.execute(action["name"], action["params"] or {})
+                obs_content = result.output if result.success else f"TOOL ERROR: {result.stderr}"
+                task.monologue["actions"].append({"tool": action["name"], "result": str(obs_content)})
+                self.task_manager.save_task(task)
+                self.task_memory.save_event(task.task_id, "observation", obs_content, "system")
+                self.task_manager.log_event(task.task_id, f"Observation: {str(obs_content)[:200]}...", "observation")
+            except Exception as e:
+                error_msg = f"Tool {action['name']} failed: {str(e)}"
+                self.task_memory.save_event(task.task_id, "error", error_msg, "system")
+            
+            return State.EXECUTE
+        
         return task.status
 
     async def _handle_observe(self, task):

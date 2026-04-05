@@ -1,6 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-manus-bg: #F3F4F6;
+  --color-manus-surface: rgba(255, 255, 255, 0.7);
+  --color-manus-border: rgba(255, 255, 255, 0.4);
+  --color-manus-accent: #2563EB;
+  --color-manus-text-primary: #111827;
+  --color-manus-text-secondary: #6B7280;
+  --shadow-manus-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-manus-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-manus-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-manus-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
 :root {
   --manus-bg: #F3F4F6;
   --manus-surface: rgba(255, 255, 255, 0.7);

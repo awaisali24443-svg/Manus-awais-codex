@@ -179,6 +179,24 @@ async def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
         raise HTTPException(status_code=404, detail="Task not found")
     return {"task_id": task.task_id, "logs": task.logs}
 
+@app.post("/api/tasks/{task_id}/confirm")
+async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(get_api_key)):
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    if task.status.value != "CONFIRM":
+        raise HTTPException(status_code=400, detail=f"Task is not waiting for confirmation. Current state: {task.status.value}")
+    
+    if confirmed:
+        task.status = State.EXECUTE
+    else:
+        task.status = State.FAIL
+        task_manager.log_event(task_id, "User rejected the action.", "error")
+    
+    task_manager.save_task(task)
+    return {"status": task.status.value}
+
 @app.get("/api/tasks")
 async def list_tasks(api_key: str = Depends(get_api_key)):
     # Firestore query for all tasks

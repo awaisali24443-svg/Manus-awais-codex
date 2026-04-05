@@ -45,6 +45,7 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [activeTab, setActiveTab] = useState('computer');
   const [logFilter, setLogFilter] = useState('All');
+  const [pendingAction, setPendingAction] = useState(null);
 
   const logsEndRef = useRef(null);
   const terminalEndRef = useRef(null);
@@ -88,6 +89,11 @@ export default function App() {
         setProgress(data.status === 'COMPLETE' ? 100 : (data.status === 'FAIL' ? 0 : 50));
         if (data.monologue) setMonologue(data.monologue);
         if (data.current_agent) setAgent(data.current_agent);
+        if (data.pending_action && Object.keys(data.pending_action).length > 0) {
+          setPendingAction(data.pending_action);
+        } else {
+          setPendingAction(null);
+        }
       }
     });
 
@@ -157,14 +163,41 @@ export default function App() {
         headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNOD_API_KEY },
         body: JSON.stringify({ goal })
       });
-      if (!res.ok) throw new Error('Failed to create task');
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        let errorMessage = 'Failed to create task';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch (e) {
+          errorMessage = `${res.status} ${res.statusText}: ${errorText || 'No detail provided'}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
       const data = await res.json();
       setTaskId(data.task_id);
     } catch (err) {
+      console.error('Execution error:', err);
       setError(err.message);
       setStatus('FAIL');
       setState('FAIL');
       setLogs(prev => [...prev, { type: 'error', text: `Execution failed: ${err.message}`, timestamp: Date.now() }]);
+    }
+  };
+
+  const handleConfirm = async (confirmed: boolean) => {
+    if (!taskId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/tasks/${taskId}/confirm?confirmed=${confirmed}`, {
+        method: 'POST',
+        headers: { 'X-API-Key': SYNOD_API_KEY }
+      });
+      if (!res.ok) throw new Error('Failed to send confirmation');
+      setPendingAction(null);
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -559,7 +592,7 @@ export default function App() {
             <button 
               onClick={handleExecute}
               disabled={!goal || (status !== 'IDLE' && status !== 'COMPLETE' && status !== 'FAIL')}
-              className="w-10 h-10 bg-manus-text-primary text-white rounded-full flex items-center justify-center hover:bg-black transition-all disabled:opacity-30 shadow-lg"
+              className="w-10 h-10 bg-[#111827] text-white rounded-full flex items-center justify-center hover:bg-black transition-all disabled:opacity-30 shadow-lg"
             >
               <ArrowUp className="w-5 h-5" />
             </button>
@@ -608,6 +641,38 @@ export default function App() {
           </div>
         </div>
       </aside>
+
+      {/* Confirmation Modal */}
+      {pendingAction && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="glass-panel max-w-md w-full p-8 rounded-[32px] shadow-2xl animate-fade-in-up">
+            <div className="w-16 h-16 bg-manus-accent/10 rounded-full flex items-center justify-center mb-6">
+              <AlertCircle className="w-8 h-8 text-manus-accent" />
+            </div>
+            <h3 className="text-xl font-bold text-manus-text-primary mb-2">Confirm Action</h3>
+            <p className="text-sm text-manus-text-secondary mb-6 leading-relaxed">
+              Awais Codex wants to execute a sensitive action: 
+              <code className="block mt-2 p-3 bg-gray-100 rounded-xl text-manus-text-primary font-mono text-xs">
+                {pendingAction.name}({JSON.stringify(pendingAction.params)})
+              </code>
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => handleConfirm(false)}
+                className="flex-1 py-3 px-4 bg-gray-100 text-manus-text-primary rounded-2xl font-semibold hover:bg-gray-200 transition-all"
+              >
+                Reject
+              </button>
+              <button 
+                onClick={() => handleConfirm(true)}
+                className="flex-1 py-3 px-4 bg-manus-accent text-white rounded-2xl font-semibold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
+              >
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error Toast */}
       {error && (

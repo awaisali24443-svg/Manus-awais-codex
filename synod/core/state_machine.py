@@ -7,6 +7,7 @@ class State(Enum):
     ANALYZE = "ANALYZE"
     PLAN = "PLAN"
     EXECUTE = "EXECUTE"
+    CONFIRM = "CONFIRM"
     OBSERVE = "OBSERVE"
     REFLECT = "REFLECT"
     RETRY = "RETRY"
@@ -23,6 +24,7 @@ class TaskState:
     logs: List[str] = field(default_factory=list)
     retries_count: int = 0
     memory_refs: List[str] = field(default_factory=list)
+    pending_action: dict = field(default_factory=dict)
     monologue: dict = field(default_factory=lambda: {
         "observations": [],
         "thoughts": [],

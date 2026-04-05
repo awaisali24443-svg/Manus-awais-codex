@@ -3,10 +3,12 @@ import uuid
 import time
 from .state_machine import TaskState, State
 from synod.firebase.firebase_init import db_client, rtdb_client
+from synod.memory.local_memory import LocalMemory
 
 class TaskManager:
     def __init__(self) -> None:
         self.tasks_collection = db_client.collection("tasks")
+        self.local_memory = LocalMemory()
 
     def _dict_to_task(self, data: dict) -> TaskState:
         task = TaskState(
@@ -18,6 +20,7 @@ class TaskManager:
             logs=data.get("logs", []),
             retries_count=data.get("retries_count", 0),
             memory_refs=data.get("memory_refs", []),
+            pending_action=data.get("pending_action", {}),
             monologue=data.get("monologue", {"observations": [], "thoughts": [], "actions": []})
         )
         return task
@@ -32,6 +35,7 @@ class TaskManager:
             "logs": task.logs,
             "retries_count": task.retries_count,
             "memory_refs": task.memory_refs,
+            "pending_action": task.pending_action,
             "monologue": task.monologue
         }
 
@@ -40,6 +44,7 @@ class TaskManager:
         task_id = str(uuid.uuid4())
         task = TaskState(task_id=task_id, goal=goal)
         self.tasks_collection.document(task_id).set(self._task_to_dict(task))
+        self.local_memory.save_task(task_id, goal, "IDLE")
         self.log_event(task_id, f"Task created with goal: {goal}")
         return task
 
@@ -49,6 +54,7 @@ class TaskManager:
         if task:
             task.status = new_state
             self.tasks_collection.document(task_id).update({"status": task.status.value})
+            self.local_memory.save_task(task_id, task.goal, new_state.value)
             self.log_event(task_id, f"Transitioned to {new_state.value}")
             return task
         return None
@@ -69,6 +75,7 @@ class TaskManager:
             "status": task.status.value,
             "retries_count": task.retries_count,
             "memory_refs": task.memory_refs,
+            "pending_action": task.pending_action,
             "monologue": task.monologue
         })
 
