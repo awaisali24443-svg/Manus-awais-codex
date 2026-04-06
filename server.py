@@ -30,17 +30,18 @@ async def ping_services():
         return
     
     print(f"PING: Starting background ping to {len(urls)} services every 10 minutes.")
-    while True:
-        for name, url in urls:
-            try:
-                # Use urllib to avoid extra dependencies
-                with urllib.request.urlopen(url, timeout=10) as response:
-                    print(f"PING: {name} ping successful ({response.status})")
-            except Exception as e:
-                print(f"PING: {name} ping failed: {e}")
-        
-        # Wait 10 minutes
-        await asyncio.sleep(600)
+    import httpx
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            for name, url in urls:
+                try:
+                    response = await client.get(url)
+                    print(f"PING: {name} ping successful ({response.status_code})")
+                except Exception as e:
+                    print(f"PING: {name} ping failed: {e}")
+            
+            # Wait 10 minutes
+            await asyncio.sleep(600)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -291,8 +291,9 @@ class AgentOrchestrator:
                 self.logger.info(
                     f"[ORCH] Attempt {attempt+1}/3 → {agent_name}"
                 )
+                timeout = 60.0 if agent_name == "deepseek" else 45.0
                 return await asyncio.wait_for(
-                    run_agent(agent_name), timeout=45.0
+                    run_agent(agent_name), timeout=timeout
                 )
             except Exception as e:
                 last_error = e
@@ -310,8 +311,9 @@ class AgentOrchestrator:
             f"Final fallback → {fallback}"
         )
         try:
+            fallback_timeout = 60.0 if fallback == "deepseek" else 45.0
             return await asyncio.wait_for(
-                run_agent(fallback), timeout=30.0
+                run_agent(fallback), timeout=fallback_timeout
             )
         except Exception as e:
             raise RuntimeError(
