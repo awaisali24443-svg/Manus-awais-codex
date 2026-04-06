@@ -14,6 +14,8 @@ from synod.core.agent_loop import AgentLoop
 from synod.core.state_machine import State
 from synod.planning.planner import Planner
 from synod.planning.plan_writer import PlanWriter
+from synod.core.task_queue import TaskQueue
+from typing import List
 
 async def ping_services():
     frontend_url = os.getenv("FRONTEND_URL")
@@ -95,9 +97,83 @@ task_manager = TaskManager()
 agent_loop = AgentLoop(task_manager)
 planner = Planner()
 plan_writer = PlanWriter()
+task_queue = TaskQueue()
+
+class BatchRequest(BaseModel):
+    goals: List[str]
 
 class TaskRequest(BaseModel):
     goal: str
+
+@app.post("/api/batch")
+async def create_batch(
+    request: BatchRequest, 
+    api_key: str = Depends(get_api_key)
+):
+    if not request.goals:
+        raise HTTPException(400, "At least one goal required")
+    if len(request.goals) > 10:
+        raise HTTPException(400, "Maximum 10 goals per batch")
+    
+    goals = [g.strip() for g in request.goals if g.strip()]
+    batch_id = await task_queue.add_batch(goals)
+    
+    # Start processing the batch automatically
+    asyncio.create_task(process_batch(batch_id))
+    
+    return {
+        "batch_id": batch_id,
+        "total_tasks": len(goals),
+        "status": "queued",
+        "message": f"Batch of {len(goals)} tasks queued. Will execute sequentially."
+    }
+
+@app.get("/api/batch/{batch_id}")
+async def get_batch_status(
+    batch_id: str,
+    api_key: str = Depends(get_api_key)
+):
+    status = await task_queue.get_batch_status(batch_id)
+    if not status["items"]:
+        raise HTTPException(404, "Batch not found")
+    return status
+
+async def process_batch(batch_id: str):
+    """Sequentially processes all items in a batch."""
+    while True:
+        next_item = await task_queue.get_next_queued(batch_id)
+        if not next_item:
+            break  # All done
+        
+        # Create and start the task
+        task = task_manager.create_task(next_item.goal)
+        await task_queue.mark_running(
+            batch_id, next_item.queue_id, task.task_id
+        )
+        
+        try:
+            # Run the full workflow
+            task_manager.log_event(
+                task.task_id,
+                f"[BATCH {batch_id[:8]}] Task {next_item.position+1} starting..."
+            )
+            plan = await planner.create_plan(next_item.goal)
+            plan_writer.write_plan(plan)
+            fetched = task_manager.get_task(task.task_id)
+            if fetched:
+                fetched.plan = [
+                    {"step_id": p.step_id, "description": p.description,
+                     "agent": p.agent, "tool": p.tool, "status": p.status}
+                    for p in plan
+                ]
+                task_manager.save_task(fetched)
+            task_manager.update_state(task.task_id, State.ANALYZE)
+            await agent_loop.run(task.task_id)
+            await task_queue.mark_complete(batch_id, next_item.queue_id)
+        except Exception as e:
+            task_manager.log_event(task.task_id, f"Batch task failed: {e}")
+            await task_queue.mark_failed(batch_id, next_item.queue_id)
+            # Continue to next task even if this one failed
 
 @app.post("/api/tasks")
 async def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
@@ -280,6 +356,13 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
             checks["services"]["sandbox"] = True
         except Exception:
             pass
+
+    # Check Playwright
+    try:
+        from playwright.async_api import async_playwright
+        checks["services"]["playwright"] = True
+    except Exception as e:
+        checks["services"]["playwright_error"] = str(e)
 
     # Check Supabase
     if env_status.get("SUPABASE_URL") and env_status.get("SUPABASE_KEY"):

@@ -50,8 +50,34 @@ export default function App() {
   const [diagnostics, setDiagnostics] = useState(null);
   const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
 
+  const [batchMode, setIsBatchMode] = useState(false);
+  const [batchGoals, setBatchGoals] = useState(['']);
+  const [batchId, setBatchId] = useState(null);
+  const [batchStatus, setBatchStatus] = useState(null);
+
   const logsEndRef = useRef(null);
   const terminalEndRef = useRef(null);
+
+  useEffect(() => {
+    if (!batchId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/batch/${batchId}`, {
+          headers: { 'X-API-Key': SYNOD_API_KEY }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBatchStatus(data);
+          if (data.running === 0 && data.queued === 0) {
+            clearInterval(interval);
+          }
+        }
+      } catch (err) {
+        console.error('Batch polling error:', err);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [batchId]);
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -390,7 +416,7 @@ export default function App() {
           <div className="glass-panel rounded-[32px] flex-1 flex flex-col overflow-hidden shadow-2xl">
             {/* Tabs */}
             <div className="flex items-center gap-1 p-2 bg-white/30 border-b border-white/20">
-              {['computer', 'thoughts', 'logs', ...(previewUrl ? ['preview'] : [])].map((t) => (
+              {['computer', 'thoughts', 'logs', ...(previewUrl ? ['preview'] : []), ...(batchId ? ['batch'] : [])].map((t) => (
                 <button
                   key={t}
                   onClick={() => setActiveTab(t as any)}
@@ -617,30 +643,150 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {activeTab === 'batch' && batchStatus && (
+                <div className="absolute inset-0 p-8 overflow-y-auto custom-scrollbar bg-gray-50">
+                  <div className="max-w-3xl mx-auto">
+                    <div className="flex items-center justify-between mb-8">
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Batch Status</h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {batchStatus.complete + batchStatus.failed} / {batchStatus.total} tasks complete
+                        </p>
+                      </div>
+                      <div className="flex gap-4 text-sm font-medium">
+                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-gray-400"></div>{batchStatus.queued} Queued</div>
+                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 pulse-dot"></div>{batchStatus.running} Running</div>
+                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500"></div>{batchStatus.complete} Complete</div>
+                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500"></div>{batchStatus.failed} Failed</div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {batchStatus.items.map((item, i) => (
+                        <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-4 flex-1">
+                            <div className="text-gray-400 font-mono text-xs w-6">{item.position + 1}.</div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-900">{item.goal}</p>
+                              {item.task_id && (
+                                <button 
+                                  onClick={() => {
+                                    setTaskId(item.task_id);
+                                    setActiveTab('computer');
+                                  }}
+                                  className="text-[10px] font-mono text-blue-500 hover:underline mt-1"
+                                >
+                                  {item.task_id}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="ml-4 flex-shrink-0">
+                            {item.status === 'QUEUED' && <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold uppercase tracking-wider">Queued</span>}
+                            {item.status === 'RUNNING' && <span className="px-3 py-1 bg-blue-100 text-blue-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 pulse-dot"></div>Running</span>}
+                            {item.status === 'COMPLETE' && <span className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-xs font-bold uppercase tracking-wider">Complete</span>}
+                            {item.status === 'FAILED' && <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-bold uppercase tracking-wider">Failed</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Floating Command Bar */}
         <div className="command-bar-container">
-          <div className="command-bar">
-            <Search className="w-5 h-5 text-gray-400 mr-2" />
-            <input 
-              type="text"
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleExecute()}
-              placeholder="What can I help you build today?"
-              className="command-input"
-            />
-            <button 
-              onClick={handleExecute}
-              disabled={!goal || (status !== 'IDLE' && status !== 'COMPLETE' && status !== 'FAIL')}
-              className="w-10 h-10 bg-[#111827] text-white rounded-full flex items-center justify-center hover:bg-black transition-all disabled:opacity-30 shadow-lg"
-            >
-              <ArrowUp className="w-5 h-5" />
-            </button>
-          </div>
+          {batchMode ? (
+            <div className="glass-panel p-4 rounded-3xl shadow-2xl w-full max-w-3xl mx-auto flex flex-col gap-3">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-sm font-bold text-manus-text-primary">Batch Tasks</h3>
+                <button onClick={() => setIsBatchMode(false)} className="text-xs text-gray-500 hover:text-gray-800">Cancel</button>
+              </div>
+              <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 px-2">
+                {batchGoals.map((g, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-400 w-4">{i + 1}.</span>
+                    <input
+                      type="text"
+                      value={g}
+                      onChange={(e) => {
+                        const newGoals = [...batchGoals];
+                        newGoals[i] = e.target.value;
+                        setBatchGoals(newGoals);
+                      }}
+                      placeholder="Enter task goal..."
+                      className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-manus-accent"
+                    />
+                    {batchGoals.length > 1 && (
+                      <button onClick={() => setBatchGoals(batchGoals.filter((_, idx) => idx !== i))} className="p-2 text-red-400 hover:bg-red-50 rounded-lg">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between px-2 pt-2">
+                <button
+                  onClick={() => batchGoals.length < 10 && setBatchGoals([...batchGoals, ''])}
+                  disabled={batchGoals.length >= 10}
+                  className="text-xs font-semibold text-manus-accent hover:text-blue-700 disabled:opacity-50"
+                >
+                  + Add another goal
+                </button>
+                <button
+                  onClick={async () => {
+                    const validGoals = batchGoals.filter(g => g.trim());
+                    if (!validGoals.length) return;
+                    try {
+                      const res = await fetch(`${API_URL}/api/batch`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNOD_API_KEY },
+                        body: JSON.stringify({ goals: validGoals })
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setBatchId(data.batch_id);
+                        setIsBatchMode(false);
+                        setBatchGoals(['']);
+                        setActiveTab('batch');
+                      }
+                    } catch (err) {
+                      console.error('Batch submit error:', err);
+                    }
+                  }}
+                  disabled={!batchGoals.some(g => g.trim())}
+                  className="px-6 py-2 bg-manus-text-primary text-white rounded-xl text-sm font-semibold hover:bg-black disabled:opacity-50"
+                >
+                  Submit Batch
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="command-bar">
+              <Search className="w-5 h-5 text-gray-400 mr-2" />
+              <input 
+                type="text"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleExecute()}
+                placeholder="What can I help you build today?"
+                className="command-input"
+              />
+              <button onClick={() => setIsBatchMode(true)} className="p-2 text-gray-400 hover:text-manus-accent mr-1" title="Batch Mode">
+                <List className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={handleExecute}
+                disabled={!goal || (status !== 'IDLE' && status !== 'COMPLETE' && status !== 'FAIL')}
+                className="w-10 h-10 bg-[#111827] text-white rounded-full flex items-center justify-center hover:bg-black transition-all disabled:opacity-30 shadow-lg"
+              >
+                <ArrowUp className="w-5 h-5" />
+              </button>
+            </div>
+          )}
         </div>
       </main>
 
@@ -796,6 +942,19 @@ export default function App() {
                           </span>
                         ) : (
                           <span className="text-xs font-bold text-red-600">Not Configured</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-manus-text-secondary" />
+                          <span className="text-sm text-manus-text-primary">Playwright Browser</span>
+                        </div>
+                        {diagnostics.services.playwright ? (
+                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Ready
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-red-600">Module Missing</span>
                         )}
                       </div>
                       <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">

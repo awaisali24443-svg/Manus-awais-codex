@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"uvicorn server:app --port 8000\" \"vite\"",
+    "dev": "concurrently \"pip install -r requirements.txt && playwright install --with-deps chromium && uvicorn server:app --port 8000\" \"vite\"",
     "serve": "uvicorn server:app --reload",
     "build": "vite build",
     "lint": "tsc --noEmit"
