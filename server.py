@@ -319,11 +319,12 @@ async def list_tasks(api_key: str = Depends(get_api_key)):
 @app.get("/api/diagnostics")
 async def get_diagnostics(api_key: str = Depends(get_api_key)):
     import os
+    import httpx
     from synod.firebase.firebase_init import db_client
     
     # Define all expected variables based on .env.example
     expected_vars = [
-        "GROQ_API_KEY", "ANTHROPIC_API_KEY", "HUGGINGFACE_API_KEY", "HF_API_KEY",
+        "GROQ_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "HUGGINGFACE_API_KEY", "HF_API_KEY",
         "SERPAPI_KEY", "SUPABASE_URL", "SUPABASE_KEY", "FIREBASE_PROJECT_ID",
         "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY", "FIREBASE_PRIVATE_KEY_ID",
         "FIREBASE_CLIENT_ID", "FIREBASE_DATABASE_URL", "FIREBASE_STORAGE_BUCKET",
@@ -338,8 +339,14 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
         "services": {
             "firestore": False,
             "sandbox": False,
-            "supabase": False
-        }
+            "supabase": False,
+            "groq": False,
+            "anthropic": False,
+            "gemini": False,
+            "huggingface": False,
+            "serpapi": False
+        },
+        "errors": {}
     }
     
     # Check Firestore
@@ -347,31 +354,99 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
         db_client.collection("tasks").limit(1).get()
         checks["services"]["firestore"] = True
     except Exception as e:
-        checks["services"]["firestore_error"] = str(e)
+        checks["errors"]["firestore"] = str(e)
         
     # Check E2B
     if env_status.get("E2B_API_KEY"):
         try:
             from e2b_code_interpreter import Sandbox
             checks["services"]["sandbox"] = True
-        except Exception:
-            pass
+        except Exception as e:
+            checks["errors"]["sandbox"] = str(e)
 
     # Check Playwright
     try:
         from playwright.async_api import async_playwright
         checks["services"]["playwright"] = True
     except Exception as e:
-        checks["services"]["playwright_error"] = str(e)
+        checks["errors"]["playwright"] = str(e)
 
     # Check Supabase
     if env_status.get("SUPABASE_URL") and env_status.get("SUPABASE_KEY"):
         try:
             from synod.firebase.firebase_init import supabase_client
             if supabase_client:
+                # Simple query to test connection
+                supabase_client.table("tasks").select("id").limit(1).execute()
                 checks["services"]["supabase"] = True
-        except Exception:
-            pass
+        except Exception as e:
+            checks["errors"]["supabase"] = str(e)
+
+    # Test API Keys with httpx
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        # Groq
+        if os.getenv("GROQ_API_KEY"):
+            try:
+                res = await client.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"}
+                )
+                checks["services"]["groq"] = res.status_code == 200
+                if res.status_code != 200:
+                    checks["errors"]["groq"] = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                checks["errors"]["groq"] = str(e)
+                
+        # Anthropic
+        if os.getenv("ANTHROPIC_API_KEY"):
+            try:
+                res = await client.get(
+                    "https://api.anthropic.com/v1/models",
+                    headers={"x-api-key": os.getenv("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01"}
+                )
+                checks["services"]["anthropic"] = res.status_code == 200
+                if res.status_code != 200:
+                    checks["errors"]["anthropic"] = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                checks["errors"]["anthropic"] = str(e)
+                
+        # Gemini
+        if os.getenv("GEMINI_API_KEY"):
+            try:
+                res = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={os.getenv('GEMINI_API_KEY')}"
+                )
+                checks["services"]["gemini"] = res.status_code == 200
+                if res.status_code != 200:
+                    checks["errors"]["gemini"] = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                checks["errors"]["gemini"] = str(e)
+                
+        # HuggingFace
+        hf_key = os.getenv("HF_API_KEY") or os.getenv("HUGGINGFACE_API_KEY")
+        if hf_key:
+            try:
+                res = await client.get(
+                    "https://huggingface.co/api/whoami-v2",
+                    headers={"Authorization": f"Bearer {hf_key}"}
+                )
+                checks["services"]["huggingface"] = res.status_code == 200
+                if res.status_code != 200:
+                    checks["errors"]["huggingface"] = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                checks["errors"]["huggingface"] = str(e)
+                
+        # SerpApi
+        if os.getenv("SERPAPI_KEY"):
+            try:
+                res = await client.get(
+                    f"https://serpapi.com/search?q=test&api_key={os.getenv('SERPAPI_KEY')}"
+                )
+                checks["services"]["serpapi"] = res.status_code == 200
+                if res.status_code != 200:
+                    checks["errors"]["serpapi"] = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                checks["errors"]["serpapi"] = str(e)
 
     return checks
 

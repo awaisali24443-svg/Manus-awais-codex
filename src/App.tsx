@@ -808,8 +808,15 @@ export default function App() {
                 <div key={i} className="timeline-item">
                   <div className={`timeline-dot ${getStepStatusColor(step.status)}`} />
                   <div className="flex items-center gap-2 mb-1">
-                    <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] font-bold text-gray-500">
-                      {step.agent === 'software_engineer' ? 'S' : step.agent === 'research_agent' ? 'R' : 'M'}
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                      step.agent === 'deepseek' ? 'bg-purple-900 text-purple-100' :
+                      step.agent === 'gemini' ? 'bg-gradient-to-br from-blue-400 to-green-400 text-white' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {step.agent === 'deepseek' ? 'R1' : 
+                       step.agent === 'gemini' ? 'GEM' : 
+                       step.agent === 'software_engineer' ? 'S' : 
+                       step.agent === 'research_agent' ? 'R' : 'M'}
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                       {step.agent.replace('_', ' ')}
@@ -855,17 +862,46 @@ export default function App() {
             </div>
 
             <div className="space-y-6">
+              {/* Frontend Variables (Always visible) */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Frontend (VITE) Variables</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    'VITE_API_URL', 'VITE_SYNOD_API_KEY', 'VITE_FIREBASE_API_KEY', 
+                    'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'
+                  ].map(key => {
+                    const exists = !!import.meta.env[key];
+                    return (
+                      <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+                        <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
+                        {exists ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Backend Connection */}
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <div className="flex items-center gap-3">
                   <Server className="w-5 h-5 text-manus-text-secondary" />
                   <span className="font-medium text-manus-text-primary">Backend API</span>
                 </div>
-                <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${diagnostics?.error ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                  <div className={`w-2 h-2 rounded-full ${diagnostics?.error ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
-                  {diagnostics?.error ? 'Offline' : 'Online'}
+                <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${isCheckingDiagnostics ? 'bg-blue-100 text-blue-600' : diagnostics?.error ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                  <div className={`w-2 h-2 rounded-full ${isCheckingDiagnostics ? 'bg-blue-500' : diagnostics?.error ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
+                  {isCheckingDiagnostics ? 'Checking...' : diagnostics?.error ? 'Offline / Error' : 'Online'}
                 </div>
               </div>
+
+              {diagnostics?.error && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600">
+                  <strong>Connection Error:</strong> {diagnostics.error}. Check if your backend is running and VITE_SYNOD_API_KEY is correct.
+                </div>
+              )}
 
               {diagnostics && !diagnostics.error && (
                 <>
@@ -891,83 +927,198 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Frontend Variables */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Frontend (VITE) Variables</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        'VITE_API_URL', 'VITE_SYNOD_API_KEY', 'VITE_FIREBASE_API_KEY', 
-                        'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'
-                      ].map(key => {
-                        const exists = !!import.meta.env[key];
-                        return (
-                          <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
-                            <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
-                            {exists ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                            ) : (
-                              <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   {/* Services */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Cloud Services</h4>
-                    <div className="grid grid-cols-1 gap-2">
-                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <Database className="w-4 h-4 text-manus-text-secondary" />
-                          <span className="text-sm text-manus-text-primary">Firestore Database</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Database className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Firestore Database</span>
+                          </div>
+                          {diagnostics.services.firestore ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Connected
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error</span>
+                          )}
                         </div>
-                        {diagnostics.services.firestore ? (
-                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Connected
-                          </span>
-                        ) : (
-                          <span className="text-xs font-bold text-red-600">Error</span>
+                        {!diagnostics.services.firestore && diagnostics.errors?.firestore && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.firestore}
+                          </div>
                         )}
                       </div>
-                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <Box className="w-4 h-4 text-manus-text-secondary" />
-                          <span className="text-sm text-manus-text-primary">E2B Sandbox Environment</span>
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Box className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">E2B Sandbox</span>
+                          </div>
+                          {diagnostics.services.sandbox ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Ready
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Not Configured</span>
+                          )}
                         </div>
-                        {diagnostics.services.sandbox ? (
-                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Ready
-                          </span>
-                        ) : (
-                          <span className="text-xs font-bold text-red-600">Not Configured</span>
+                        {!diagnostics.services.sandbox && diagnostics.errors?.sandbox && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.sandbox}
+                          </div>
                         )}
                       </div>
-                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-manus-text-secondary" />
-                          <span className="text-sm text-manus-text-primary">Playwright Browser</span>
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Globe className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Playwright</span>
+                          </div>
+                          {diagnostics.services.playwright ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Ready
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Module Missing</span>
+                          )}
                         </div>
-                        {diagnostics.services.playwright ? (
-                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Ready
-                          </span>
-                        ) : (
-                          <span className="text-xs font-bold text-red-600">Module Missing</span>
+                        {!diagnostics.services.playwright && diagnostics.errors?.playwright && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.playwright}
+                          </div>
                         )}
                       </div>
-                      <div className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <Zap className="w-4 h-4 text-manus-text-secondary" />
-                          <span className="text-sm text-manus-text-primary">Supabase Vector Memory</span>
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Supabase Vector Memory</span>
+                          </div>
+                          {diagnostics.services.supabase ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Ready
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Not Configured</span>
+                          )}
                         </div>
-                        {diagnostics.services.supabase ? (
-                          <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Ready
-                          </span>
-                        ) : (
-                          <span className="text-xs font-bold text-red-600">Not Configured</span>
+                        {!diagnostics.services.supabase && diagnostics.errors?.supabase && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.supabase}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Groq API */}
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Groq API</span>
+                          </div>
+                          {diagnostics.services.groq ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Working
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
+                          )}
+                        </div>
+                        {!diagnostics.services.groq && diagnostics.errors?.groq && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.groq}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Anthropic API */}
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Anthropic API</span>
+                          </div>
+                          {diagnostics.services.anthropic ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Working
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
+                          )}
+                        </div>
+                        {!diagnostics.services.anthropic && diagnostics.errors?.anthropic && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.anthropic}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Gemini API */}
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">Gemini API</span>
+                          </div>
+                          {diagnostics.services.gemini ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Working
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
+                          )}
+                        </div>
+                        {!diagnostics.services.gemini && diagnostics.errors?.gemini && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.gemini}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* HuggingFace API */}
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">HuggingFace API</span>
+                          </div>
+                          {diagnostics.services.huggingface ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Working
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
+                          )}
+                        </div>
+                        {!diagnostics.services.huggingface && diagnostics.errors?.huggingface && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.huggingface}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* SerpApi */}
+                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-manus-text-secondary" />
+                            <span className="text-sm text-manus-text-primary">SerpApi</span>
+                          </div>
+                          {diagnostics.services.serpapi ? (
+                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Working
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
+                          )}
+                        </div>
+                        {!diagnostics.services.serpapi && diagnostics.errors?.serpapi && (
+                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
+                            {diagnostics.errors.serpapi}
+                          </div>
                         )}
                       </div>
                     </div>

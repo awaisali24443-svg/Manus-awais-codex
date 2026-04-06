@@ -6,7 +6,7 @@ import json
 from typing import Callable, Dict, Awaitable, Optional
 from .state_machine import State, TaskState
 from synod.core.task_manager import TaskManager
-from synod.agents.llm_router import LLMRouter
+from synod.agents.orchestrator import AgentOrchestrator
 from synod.tools.executor import ToolExecutor
 from synod.planning.plan_writer import PlanWriter
 from synod.memory.task_memory import TaskMemory
@@ -15,7 +15,7 @@ from synod.tools.builtin_tools import git_operations
 class AgentLoop:
     def __init__(self, task_manager: TaskManager):
         self.task_manager = task_manager
-        self.llm_router = LLMRouter()
+        self.orchestrator = AgentOrchestrator()
         self.tool_executor = ToolExecutor()
         self.plan_writer = PlanWriter()
         self.task_memory = TaskMemory()
@@ -174,7 +174,11 @@ class AgentLoop:
             tool_schemas,
             self.plan_writer.inject_into_context(task.plan)
         )
-        observation = await self.llm_router.route(f"Understand the goal: {task.goal}", context)
+        observation = await self.orchestrator.orchestrate(
+            task.task_id,
+            f"Understand and analyze this goal: {task.goal}",
+            context
+        )
         self.task_memory.save_event(task.task_id, "observation", observation, "MasterAgent")
         return State.PLAN
 
@@ -243,7 +247,9 @@ class AgentLoop:
             if last_action and last_action.get("tool", "").startswith("browser_"):
                 image_data = self._get_latest_screenshot()
                 
-            response = await self.llm_router.route(step_desc, context, image_data)
+            response = await self.orchestrator.orchestrate(
+                task.task_id, step_desc, context, image_data
+            )
             parsed = self._parse_react_response(response)
             
             if parsed["thought"]:
