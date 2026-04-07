@@ -1,27 +1,48 @@
 import React from 'react';
-import { Box, GitBranch, Database, ExternalLink, Copy, Check, AlertCircle } from 'lucide-react';
-import { User as FirebaseUser } from '../../firebase';
+import { Box, GitBranch, Database, ExternalLink, Copy, Check, AlertCircle, Cpu, Brain, Globe, Server, Zap, Search, Activity } from 'lucide-react';
 
-export default function IntegrationsSettings({ user, diagnostics, copyToClipboard, copied }: { 
-  user: FirebaseUser | null, 
+const API_KEY_DISPLAY = {
+  'GROQ_API_KEY':       { name: 'Groq API',        type: 'LLM Orchestration',  icon: Cpu },
+  'ANTHROPIC_API_KEY':  { name: 'Anthropic Claude', type: 'Code Generation',    icon: Brain },
+  'GEMINI_API_KEY':     { name: 'Google Gemini',    type: 'Research + Vision',  icon: Globe },
+  'HUGGINGFACE_API_KEY':{ name: 'HuggingFace',      type: 'Gemma Agent',        icon: Server },
+  'HF_QWEN_API_KEY':    { name: 'HF Qwen',          type: 'Code Agent (HF)',    icon: Cpu },
+  'DEEPSEEK_API_KEY':   { name: 'DeepSeek',         type: 'Reasoning Agent',    icon: Zap },
+  'E2B_API_KEY':        { name: 'E2B Sandbox',      type: 'Cloud Execution',    icon: Box },
+  'SERPAPI_KEY':        { name: 'SerpAPI',           type: 'Web Search',         icon: Search },
+  'SUPABASE_URL':       { name: 'Supabase',          type: 'Vector Memory',      icon: Database },
+};
+
+export default function IntegrationsSettings({ diagnostics, copyToClipboard, copied }: { 
   diagnostics: any, 
   copyToClipboard: (text: string, id: string) => void,
   copied: string | null
 }) {
-  const integrations = [
-    { id: 'groq', name: 'Groq API', icon: Box, desc: 'High-performance LLM inference', status: diagnostics?.services?.groq ? 'Connected' : 'Disconnected' },
-    { id: 'anthropic', name: 'Anthropic', icon: GitBranch, desc: 'Claude 3.5 Sonnet integration', status: diagnostics?.services?.anthropic ? 'Connected' : 'Disconnected' },
-    { id: 'supabase', name: 'Supabase', icon: Database, desc: 'Vector memory and database', status: diagnostics?.services?.supabase ? 'Connected' : 'Disconnected' },
-  ];
-
-  if (!user) {
+  if (!diagnostics) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-        <Box className="w-16 h-16 mb-4 opacity-10" />
-        <p className="text-lg font-medium">Please sign in to view integrations.</p>
+        <Activity className="w-16 h-16 mb-4 opacity-10" />
+        <p className="text-lg font-medium">Run diagnostics to see integration status.</p>
       </div>
     );
   }
+
+  const getStatus = (key: string) => {
+    const serviceKey = key.toLowerCase().replace('_api_key', '').replace('_key', '').replace('_url', '');
+    if (diagnostics.services?.[serviceKey] === true) return 'Verified';
+    if (diagnostics.errors?.[serviceKey]) return 'Error';
+    if (diagnostics.environment?.[key]) return 'Configured';
+    return 'Not Configured';
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Verified': return 'bg-green-50 text-green-600 border-green-100';
+      case 'Error': return 'bg-red-50 text-red-600 border-red-100';
+      case 'Configured': return 'bg-yellow-50 text-yellow-600 border-yellow-100';
+      default: return 'bg-gray-50 text-gray-400 border-gray-100';
+    }
+  };
 
   return (
     <div className="space-y-10">
@@ -31,30 +52,39 @@ export default function IntegrationsSettings({ user, diagnostics, copyToClipboar
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:gap-6">
-        {integrations.map((item) => (
-          <div key={item.id} className="p-6 sm:p-8 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-gray-300 transition-all">
-            <div className="flex items-center gap-4 sm:gap-6">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${item.status === 'Connected' ? 'bg-green-50' : 'bg-red-50'}`}>
-                <item.icon className={`w-6 h-6 ${item.status === 'Connected' ? 'text-green-600' : 'text-red-600'}`} />
+        {Object.entries(API_KEY_DISPLAY).map(([key, info]) => {
+          const status = getStatus(key);
+          const Icon = info.icon;
+          const error = diagnostics.errors?.[key.toLowerCase().replace('_api_key', '').replace('_key', '').replace('_url', '')];
+
+          return (
+            <div key={key} className="p-6 sm:p-8 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-gray-300 transition-all">
+              <div className="flex items-center gap-4 sm:gap-6">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${status === 'Verified' ? 'bg-green-50' : status === 'Error' ? 'bg-red-50' : 'bg-gray-50'}`}>
+                  <Icon className={`w-6 h-6 ${status === 'Verified' ? 'text-green-600' : status === 'Error' ? 'text-red-600' : 'text-gray-400'}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-gray-900 text-lg">{info.name}</h4>
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded uppercase tracking-wider">{info.type}</span>
+                  </div>
+                  <p className="text-sm text-gray-500 font-medium">
+                    {error ? <span className="text-red-500">{error}</span> : `Manage your ${info.name} configuration.`}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-bold text-gray-900 text-lg">{item.name}</h4>
-                <p className="text-sm text-gray-500 font-medium">{item.desc}</p>
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(status)}`}>
+                  {status === 'Verified' ? <Check className="w-3 h-3" /> : status === 'Error' ? <AlertCircle className="w-3 h-3" /> : null}
+                  {status}
+                </div>
+                <button className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all">
+                  <ExternalLink className="w-4.5 h-4.5" />
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-4 w-full sm:w-auto">
-              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                item.status === 'Connected' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
-              }`}>
-                {item.status === 'Connected' ? <Check className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                {item.status}
-              </div>
-              <button className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all">
-                <ExternalLink className="w-4.5 h-4.5" />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="p-8 bg-gray-900 rounded-2xl text-white relative overflow-hidden">

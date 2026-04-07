@@ -46,6 +46,17 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: BACKEND_URL
+        sync: false
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: synod-backend
+          property: host
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: HF_QWEN_API_KEY
+        sync: false
       - key: E2B_API_KEY
         sync: false
 

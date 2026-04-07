@@ -98,7 +98,7 @@ class AgentOrchestrator:
 
     @property
     def deepseek(self):
-        if self._deepseek is None and os.getenv("GROQ_API_KEY"):
+        if self._deepseek is None and os.getenv("DEEPSEEK_API_KEY"):
             try:
                 from .deepseek_agent import DeepSeekAgent
                 self._deepseek = DeepSeekAgent()
@@ -278,7 +278,9 @@ class AgentOrchestrator:
             "logic_agent": "research_agent",
             "research_agent": "software_engineer",
             "deepseek": "logic_agent",
-            "gemini": "research_agent"
+            "gemini": "research_agent",
+            "gemma": "logic_agent",
+            "qwen": "software_engineer"
         }
         return chain.get(current, "logic_agent")
 

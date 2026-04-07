@@ -10,7 +10,7 @@ class GemmaAgent:
     """
     def __init__(self):
         self.api_key = os.getenv("HUGGINGFACE_API_KEY")
-        self.model = "google/gemma-4-31b-it"
+        self.model = "google/gemma-2-27b-it"
         self.api_url = f"https://api-inference.huggingface.co/models/{self.model}"
         self.headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         self.timeout = 60.0
@@ -21,10 +21,12 @@ class GemmaAgent:
             
         async with httpx.AsyncClient() as client:
             payload = {
-                "inputs": f"Context: {context}\n\nTask: {task}",
-                "parameters": {"max_new_tokens": 1000, "return_full_text": False}
+                "inputs": f"<start_of_turn>user\nYou are a reasoning agent. Use ReAct format: <thought>, <tool_call>, <task_completed>.\nContext: {context}\n\nTask: {task}<end_of_turn>\n<start_of_turn>model\n<thought>",
+                "parameters": {"max_new_tokens": 1000, "return_full_text": False, "stop": ["<end_of_turn>"]}
             }
             response = await client.post(self.api_url, headers=self.headers, json=payload, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
-            return result[0]["generated_text"]
+            if isinstance(result, list):
+                return "<thought>" + result[0]["generated_text"]
+            return "<thought>" + result["generated_text"]

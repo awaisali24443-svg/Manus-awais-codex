@@ -17,31 +17,44 @@ from synod.planning.plan_writer import PlanWriter
 from synod.core.task_queue import TaskQueue
 from typing import List
 
+# ═══════════════════════════════════════════════
+# PERMANENT PING SYSTEM — DO NOT REMOVE OR MODIFY
+# Keeps Render free tier alive every 10 minutes
+# ═══════════════════════════════════════════════
 async def ping_services():
+    """
+    PERMANENT SYSTEM: Pings frontend and backend
+    every 10 minutes to prevent Render cold starts.
+    DO NOT REMOVE THIS FUNCTION.
+    """
+    import httpx
     frontend_url = os.getenv("FRONTEND_URL")
-    backend_url = os.getenv("BACKEND_URL") or os.getenv("VITE_API_URL")
+    backend_url = os.getenv("BACKEND_URL") or os.getenv("RENDER_EXTERNAL_URL")
     
     urls = []
-    if frontend_url: urls.append(("Frontend", frontend_url))
-    if backend_url: urls.append(("Backend", backend_url))
+    if frontend_url:
+        urls.append(("Frontend", frontend_url))
+    if backend_url:
+        urls.append(("Backend", backend_url))
     
     if not urls:
-        print("PING: No URLs set (FRONTEND_URL or BACKEND_URL), skipping background ping.")
+        print("[PING] No URLs configured. Set FRONTEND_URL and BACKEND_URL.")
         return
     
-    print(f"PING: Starting background ping to {len(urls)} services every 10 minutes.")
-    import httpx
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        while True:
-            for name, url in urls:
-                try:
+    print(f"[PING] System active — pinging {len(urls)} services every 10min.")
+    
+    while True:
+        await asyncio.sleep(600)  # 10 minutes
+        for name, url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
                     response = await client.get(url)
-                    print(f"PING: {name} ping successful ({response.status_code})")
-                except Exception as e:
-                    print(f"PING: {name} ping failed: {e}")
-            
-            # Wait 10 minutes
-            await asyncio.sleep(600)
+                    print(f"[PING] ✅ {name}: {response.status_code}")
+            except Exception as e:
+                print(f"[PING] ❌ {name}: {e}")
+# ═══════════════════════════════════════════════
+# END PERMANENT PING SYSTEM
+# ═══════════════════════════════════════════════
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -265,9 +278,10 @@ def get_task(task_id: str, api_key: str = Depends(get_api_key)):
 @app.get("/api/tasks/{task_id}/screenshot")
 async def get_screenshot(task_id: str, api_key: str = Depends(get_api_key)):
     import os, glob
-    screenshots_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "workspace", "screenshots")
-    )
+    # Use absolute path relative to this file
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    screenshots_dir = os.path.join(base_dir, "workspace", "screenshots")
+    
     if not os.path.exists(screenshots_dir):
         return {"screenshot": None}
     files = sorted(glob.glob(f"{screenshots_dir}/screenshot_*.png"),
@@ -277,7 +291,8 @@ async def get_screenshot(task_id: str, api_key: str = Depends(get_api_key)):
     import base64
     with open(files[0], "rb") as f:
         data = base64.b64encode(f.read()).decode()
-    return {"screenshot": f"data:image/png;base64,{data}"}
+    # Return raw base64, App.tsx will handle the prefix if needed (or we fix it there)
+    return {"screenshot": data}
 
 @app.get("/api/tasks/{task_id}/logs")
 def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
@@ -287,7 +302,7 @@ def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
     return {"task_id": task.task_id, "logs": task.logs}
 
 @app.post("/api/tasks/{task_id}/confirm")
-def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(get_api_key)):
+async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(get_api_key)):
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

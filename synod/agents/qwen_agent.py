@@ -10,7 +10,7 @@ class QwenAgent:
     """
     def __init__(self):
         self.api_key = os.getenv("HF_QWEN_API_KEY")
-        self.model = "mudler/Qwen3.5-35B-A3B-APEX-GGUF"
+        self.model = "Qwen/Qwen2.5-Coder-32B-Instruct"
         self.api_url = f"https://api-inference.huggingface.co/models/{self.model}"
         self.headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         self.timeout = 60.0
@@ -21,10 +21,13 @@ class QwenAgent:
             
         async with httpx.AsyncClient() as client:
             payload = {
-                "inputs": f"Context: {context}\n\nTask: {task}",
-                "parameters": {"max_new_tokens": 2000, "return_full_text": False}
+                "inputs": f"<|im_start|>system\nYou are a world-class software engineer. Use ReAct format: <thought>, <tool_call>, <task_completed>.\nContext: {context}<|im_end|>\n<|im_start|>user\n{task}<|im_end|>\n<|im_start|>assistant\n<thought>",
+                "parameters": {"max_new_tokens": 2000, "return_full_text": False, "stop": ["<|im_end|>"]}
             }
             response = await client.post(self.api_url, headers=self.headers, json=payload, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
-            return result[0]["generated_text"]
+            # If it's a list of results
+            if isinstance(result, list):
+                return "<thought>" + result[0]["generated_text"]
+            return "<thought>" + result["generated_text"]

@@ -1,20 +1,22 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Activity, CheckCircle2, AlertCircle, RefreshCw, Terminal, Cpu, Database, Globe } from 'lucide-react';
 import { User as FirebaseUser } from '../../firebase';
 
-export default function DiagnosticsSettings({ user, diagnostics, checkDiagnostics }: { 
-  user: FirebaseUser | null, 
+export default function DiagnosticsSettings({ diagnostics, checkDiagnostics }: { 
   diagnostics: any, 
   checkDiagnostics: () => void 
 }) {
-  if (!user) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-        <Activity className="w-16 h-16 mb-4 opacity-10" />
-        <p className="text-lg font-medium">Please sign in to view diagnostics.</p>
-      </div>
-    );
-  }
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (diagnostics && !diagnostics.error) {
+      setLastChecked(new Date());
+    }
+  }, [diagnostics]);
+
+  const configuredCount = diagnostics?.environment ? Object.values(diagnostics.environment).filter(Boolean).length : 0;
+  const verifiedCount = diagnostics?.services ? Object.values(diagnostics.services).filter(Boolean).length : 0;
+  const errorCount = diagnostics?.errors ? Object.keys(diagnostics.errors).length : 0;
 
   return (
     <div className="space-y-10">
@@ -91,9 +93,9 @@ export default function DiagnosticsSettings({ user, diagnostics, checkDiagnostic
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         {[
-          { label: 'Uptime', value: '99.98%', desc: 'Last 30 days' },
-          { label: 'Latency', value: diagnostics?.latency || '124ms', desc: 'Average response' },
-          { label: 'Memory', value: '2.4GB', desc: 'Current usage' },
+          { label: 'APIs Configured', value: configuredCount, desc: 'Total env variables set' },
+          { label: 'APIs Verified', value: verifiedCount, desc: 'Successful connections' },
+          { label: 'API Errors', value: errorCount, desc: 'Failed connections' },
         ].map((stat) => (
           <div key={stat.label} className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">{stat.label}</p>
@@ -102,6 +104,12 @@ export default function DiagnosticsSettings({ user, diagnostics, checkDiagnostic
           </div>
         ))}
       </div>
+      
+      {lastChecked && (
+        <p className="text-center text-xs text-gray-400 font-medium">
+          Last checked: {lastChecked.toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
