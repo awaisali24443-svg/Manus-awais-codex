@@ -177,44 +177,44 @@ async def process_batch(batch_id: str):
             # Continue to next task even if this one failed
 
 @app.post("/api/tasks")
-async def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
+def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
     if not request.goal.strip():
         raise HTTPException(status_code=400, detail="Goal cannot be empty")
         
     task = task_manager.create_task(request.goal)
     
     # Start the agent loop in the background
-    asyncio.create_task(run_agent_workflow(task.task_id, request.goal))
+    background_tasks.add_task(run_agent_workflow, task.task_id, request.goal)
     
     return {"task_id": task.task_id, "status": task.status.value}
 
 async def run_agent_workflow(task_id: str, goal: str):
     # This is a simplified wrapper to integrate planning before the main loop
     try:
-        task_manager.log_event(task_id, "Generating execution plan...")
+        await asyncio.to_thread(task_manager.log_event, task_id, "Generating execution plan...")
         plan = await planner.create_plan(goal)
-        plan_writer.write_plan(plan)
+        await asyncio.to_thread(plan_writer.write_plan, plan)
         
         # Store plan in task state for the API to read
-        task = task_manager.get_task(task_id)
+        task = await asyncio.to_thread(task_manager.get_task, task_id)
         if task:
             task.plan = [{"step_id": p.step_id, "description": p.description, "agent": p.agent, "tool": p.tool, "status": p.status} for p in plan]
-            task_manager.save_task(task)
+            await asyncio.to_thread(task_manager.save_task, task)
             
-        task_manager.update_state(task_id, State.ANALYZE)
+        await asyncio.to_thread(task_manager.update_state, task_id, State.ANALYZE)
             
         # Run the main agent loop
         await agent_loop.run(task_id)
         
     except Exception as e:
-        task_manager.log_event(task_id, f"Workflow failed: {str(e)}", "error")
-        task = task_manager.get_task(task_id)
+        await asyncio.to_thread(task_manager.log_event, task_id, f"Workflow failed: {str(e)}", "error")
+        task = await asyncio.to_thread(task_manager.get_task, task_id)
         if task:
             task.fail_or_retry()
-            task_manager.save_task(task)
+            await asyncio.to_thread(task_manager.save_task, task)
 
 @app.get("/api/tasks/{task_id}")
-async def get_task(task_id: str, api_key: str = Depends(get_api_key)):
+def get_task(task_id: str, api_key: str = Depends(get_api_key)):
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -279,14 +279,14 @@ async def get_screenshot(task_id: str, api_key: str = Depends(get_api_key)):
     return {"screenshot": f"data:image/png;base64,{data}"}
 
 @app.get("/api/tasks/{task_id}/logs")
-async def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
+def get_task_logs(task_id: str, api_key: str = Depends(get_api_key)):
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"task_id": task.task_id, "logs": task.logs}
 
 @app.post("/api/tasks/{task_id}/confirm")
-async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(get_api_key)):
+def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(get_api_key)):
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -304,7 +304,7 @@ async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depe
     return {"status": task.status.value}
 
 @app.get("/api/tasks")
-async def list_tasks(api_key: str = Depends(get_api_key)):
+def list_tasks(api_key: str = Depends(get_api_key)):
     # Firestore query for all tasks
     docs = task_manager.tasks_collection.stream()
     tasks = []

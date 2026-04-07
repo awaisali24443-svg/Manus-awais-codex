@@ -32,52 +32,9 @@ export default function App() {
   const [taskId, setTaskId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [status, setStatus] = useState('IDLE');
-  const [state, setState] = useState('IDLE');
   const [agent, setAgent] = useState('MasterAgent');
-  const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState([]);
-  const [plan, setPlan] = useState([]);
-  const [monologue, setMonologue] = useState({ observations: [], thoughts: [], actions: [] });
-  const [error, setError] = useState(null);
-  const [screenshot, setScreenshot] = useState(null);
-  const [devBoxStatus, setDevBoxStatus] = useState('Offline');
-  const [replanCount, setReplanCount] = useState(0);
-  const [previewUrl, setPreviewUrl] = useState(null);
-  const [activeTab, setActiveTab] = useState('computer');
-  const [logFilter, setLogFilter] = useState('All');
-  const [pendingAction, setPendingAction] = useState(null);
-  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
-  const [diagnostics, setDiagnostics] = useState(null);
-  const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
-
-  const [batchMode, setIsBatchMode] = useState(false);
-  const [batchGoals, setBatchGoals] = useState(['']);
-  const [batchId, setBatchId] = useState(null);
-  const [batchStatus, setBatchStatus] = useState(null);
-
   const logsEndRef = useRef(null);
-  const terminalEndRef = useRef(null);
-
-  useEffect(() => {
-    if (!batchId) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/batch/${batchId}`, {
-          headers: { 'X-API-Key': SYNOD_API_KEY }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setBatchStatus(data);
-          if (data.running === 0 && data.queued === 0) {
-            clearInterval(interval);
-          }
-        }
-      } catch (err) {
-        console.error('Batch polling error:', err);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [batchId]);
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -95,30 +52,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Keep-alive ping for backend (every 10 minutes)
-    const pingBackend = async () => {
-      try {
-        await fetch(`${API_URL}/`, { method: 'GET' });
-        console.log('PING: Backend ping successful');
-      } catch (err) {
-        console.error('PING: Backend ping failed:', err);
-      }
-    };
-
-    const interval = setInterval(pingBackend, 600000); // 10 minutes
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
-
-  useEffect(() => {
     if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    if (terminalEndRef.current) terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
   useEffect(() => {
@@ -128,16 +62,7 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setStatus(data.status === 'COMPLETE' || data.status === 'FAIL' ? data.status : 'RUNNING');
-        setState(data.status || 'IDLE');
-        setPlan(data.plan || []);
-        setProgress(data.status === 'COMPLETE' ? 100 : (data.status === 'FAIL' ? 0 : 50));
-        if (data.monologue) setMonologue(data.monologue);
         if (data.current_agent) setAgent(data.current_agent);
-        if (data.pending_action && Object.keys(data.pending_action).length > 0) {
-          setPendingAction(data.pending_action);
-        } else {
-          setPendingAction(null);
-        }
       }
     });
 
@@ -151,22 +76,6 @@ export default function App() {
           text: l.content || l.message || '',
           timestamp: l.timestamp 
         })));
-        
-        let replans = 0;
-        let dbStatus = 'Offline';
-        logsArray.forEach(l => {
-          if (l.type === 'infrastructure') {
-            if (l.content && l.content.includes('Online')) dbStatus = 'Online';
-            if (l.content && l.content.includes('Offline')) dbStatus = 'Offline';
-          }
-          if (l.type === 'replan') replans++;
-          if (l.text && l.text.includes('live at:')) {
-            const match = l.text.match(/https:\/\/[^\s]+/);
-            if (match) setPreviewUrl(match[0]);
-          }
-        });
-        setDevBoxStatus(dbStatus);
-        setReplanCount(replans);
       }
     });
 
@@ -176,30 +85,10 @@ export default function App() {
     };
   }, [taskId]);
 
-  useEffect(() => {
-    if (!taskId || status !== 'RUNNING') return;
-    const screenshotInterval = setInterval(async () => {
-        try {
-            const res = await fetch(`${API_URL}/api/tasks/${taskId}/screenshot`, { headers: { 'X-API-Key': SYNOD_API_KEY } });
-            const data = await res.json();
-            if (data.screenshot) setScreenshot(data.screenshot);
-        } catch {}
-    }, 2000);
-    return () => clearInterval(screenshotInterval);
-  }, [taskId, status]);
-
   const handleExecute = async () => {
     if (!goal.trim()) return;
-    setError(null);
     setStatus('RUNNING');
-    setState('ANALYZE');
-    setProgress(5);
     setLogs([{ type: 'info', text: `Initializing task: ${goal}`, timestamp: Date.now() }]);
-    setPlan([]);
-    setMonologue({ observations: [], thoughts: [], actions: [] });
-    setReplanCount(0);
-    setPreviewUrl(null);
-    setDevBoxStatus('Offline');
 
     try {
       const res = await fetch(`${API_URL}/api/tasks`, {
@@ -208,995 +97,89 @@ export default function App() {
         body: JSON.stringify({ goal })
       });
       
-      if (!res.ok) {
-        const errorText = await res.text();
-        let errorMessage = 'Failed to create task';
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorMessage;
-        } catch (e) {
-          errorMessage = `${res.status} ${res.statusText}: ${errorText || 'No detail provided'}`;
-        }
-        throw new Error(errorMessage);
-      }
+      if (!res.ok) throw new Error('Failed to create task');
       
       const data = await res.json();
       setTaskId(data.task_id);
     } catch (err) {
       console.error('Execution error:', err);
-      setError(err.message);
       setStatus('FAIL');
-      setState('FAIL');
       setLogs(prev => [...prev, { type: 'error', text: `Execution failed: ${err.message}`, timestamp: Date.now() }]);
     }
   };
 
-  const handleConfirm = async (confirmed: boolean) => {
-    if (!taskId) return;
-    try {
-      const res = await fetch(`${API_URL}/api/tasks/${taskId}/confirm?confirmed=${confirmed}`, {
-        method: 'POST',
-        headers: { 'X-API-Key': SYNOD_API_KEY }
-      });
-      if (!res.ok) throw new Error('Failed to send confirmation');
-      setPendingAction(null);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const checkDiagnostics = async () => {
-    setIsCheckingDiagnostics(true);
-    try {
-      const res = await fetch(`${API_URL}/api/diagnostics`, {
-        headers: { 'X-API-Key': SYNOD_API_KEY }
-      });
-      if (!res.ok) throw new Error('Backend unreachable');
-      const data = await res.json();
-      setDiagnostics(data);
-    } catch (err) {
-      setDiagnostics({ error: err.message });
-    } finally {
-      setIsCheckingDiagnostics(false);
-    }
-  };
-
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
-
-  const clearHistory = () => {
-    setTasks([]);
-    setTaskId(null);
-  };
-
-  const getLogColor = (type) => {
-    switch(type) {
-      case 'error': return 'text-red-400';
-      case 'observation': return 'text-blue-400';
-      case 'thought': return 'text-purple-400';
-      case 'tool': return 'text-green-400';
-      case 'infrastructure': return 'text-orange-400';
-      case 'replan': return 'text-yellow-400';
-      default: return 'text-gray-300';
-    }
-  };
-
-  const getStepStatusColor = (s) => {
-    switch(s) {
-      case 'COMPLETED': return 'completed';
-      case 'IN_PROGRESS': return 'active';
-      default: return '';
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
   return (
-    <div className="manus-layout">
-      {/* Mobile Overlay */}
-      <div 
-        className={`mobile-overlay ${(isSidebarOpen || isTimelineOpen) ? 'active' : ''}`}
-        onClick={() => {
-          setIsSidebarOpen(false);
-          setIsTimelineOpen(false);
-        }}
-      />
-
+    <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
       {/* Sidebar - History */}
-      <aside className={`manus-sidebar ${isSidebarOpen ? 'active' : ''}`}>
-        <div className="glass-panel rounded-3xl p-6 flex flex-col h-full">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="font-semibold text-sm tracking-tight">History</h2>
-            <button 
-              onClick={() => {
-                setIsDiagnosticsOpen(true);
-                checkDiagnostics();
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-manus-text-secondary hover:bg-white/50 hover:text-manus-accent transition-all group"
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-100">
+          <h1 className="text-lg font-semibold tracking-tight">Awais Codex</h1>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {tasks.map((h) => (
+            <div 
+              key={h.task_id}
+              onClick={() => setTaskId(h.task_id)}
+              className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                taskId === h.task_id ? 'bg-gray-100' : 'hover:bg-gray-50'
+              }`}
             >
-              <Activity className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              <span className="font-medium">System Status</span>
-            </button>
-            <button 
-              onClick={clearHistory}
-              className="text-[11px] font-medium text-manus-text-secondary hover:text-manus-accent transition-colors"
-            >
-              Clear
-            </button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
-            {tasks.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Clock className="w-5 h-5 text-gray-300" />
-                </div>
-                <p className="text-xs text-gray-400">No recent tasks</p>
-              </div>
-            ) : (
-              tasks.map((h) => (
-                <div 
-                  key={h.task_id}
-                  onClick={() => setTaskId(h.task_id)}
-                  className={`group p-3 rounded-2xl cursor-pointer transition-all duration-200 ${
-                    taskId === h.task_id 
-                      ? 'bg-white shadow-sm border border-gray-100' 
-                      : 'hover:bg-white/50 border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                      h.status === 'COMPLETE' ? 'bg-green-500' : 
-                      h.status === 'FAIL' ? 'bg-red-500' : 'bg-blue-500 pulse-dot'
-                    }`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium truncate leading-tight mb-1">
-                        {h.goal}
-                      </p>
-                      <p className="text-[10px] text-manus-text-secondary font-mono uppercase tracking-wider">
-                        {h.task_id.slice(0, 8)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+              <p className="text-sm font-medium truncate">{h.goal}</p>
+            </div>
+          ))}
         </div>
       </aside>
 
       {/* Main Stage */}
-      <main className="manus-stage">
-        {/* Top Status Bar */}
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-white rounded-lg transition-colors"
-            >
-              <Menu className="w-5 h-5 text-manus-text-secondary" />
-            </button>
-            <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-xs">A</span>
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight">Awais Codex</h1>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full pulse-dot" />
-                <span className="text-[10px] font-medium text-manus-text-secondary uppercase tracking-widest">
-                  {status || 'Ready'}
-                </span>
-              </div>
-            </div>
+      <main className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-sm font-medium text-gray-600">{status || 'Ready'}</span>
+            <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-100 rounded-full">{agent}</span>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="flex -space-x-2">
-              <div className="w-6 h-6 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center text-[8px] font-bold">M</div>
-              <div className="w-6 h-6 rounded-full border-2 border-white bg-blue-100 flex items-center justify-center text-[8px] font-bold text-blue-600">S</div>
-              <div className="w-6 h-6 rounded-full border-2 border-white bg-purple-100 flex items-center justify-center text-[8px] font-bold text-purple-600">R</div>
-            </div>
-            <button 
-              onClick={() => setIsTimelineOpen(true)}
-              className="lg:hidden p-2 hover:bg-white rounded-lg transition-colors"
-            >
-              <ListChecks className="w-5 h-5 text-manus-text-secondary" />
-            </button>
-            <div className="h-4 w-[1px] bg-gray-200" />
-            <button className="p-2 hover:bg-white rounded-full transition-colors">
-              <Settings className="w-4 h-4 text-manus-text-secondary" />
-            </button>
-          </div>
-        </div>
+        </header>
 
-        {/* Central Computer Window */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="glass-panel rounded-[32px] flex-1 flex flex-col overflow-hidden shadow-2xl">
-            {/* Tabs */}
-            <div className="flex items-center gap-1 p-2 bg-white/30 border-b border-white/20">
-              {['computer', 'thoughts', 'logs', ...(previewUrl ? ['preview'] : []), ...(batchId ? ['batch'] : [])].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setActiveTab(t as any)}
-                  className={`px-4 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 ${
-                    activeTab === t 
-                      ? 'bg-white text-manus-accent shadow-sm' 
-                      : 'text-manus-text-secondary hover:text-manus-text-primary hover:bg-white/50'
-                  }`}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex-1 relative overflow-hidden bg-white/50">
-              {activeTab === 'computer' && (
-                <div className="absolute inset-0 flex flex-col">
-                  {/* Browser Chrome */}
-                  <div className="browser-header">
-                    <div className="flex gap-1.5">
-                      <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
-                      <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
-                      <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-                    </div>
-                    <div className="flex gap-2 ml-4">
-                      <ChevronLeft className="w-4 h-4 text-gray-400" />
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
-                    </div>
-                    <div className="browser-address-bar">
-                      <Globe className="w-3 h-3 mr-2 text-gray-400" />
-                      <span className="truncate">{previewUrl || 'https://manus.ai/workspace'}</span>
-                    </div>
-                    <button className="p-1.5 hover:bg-gray-100 rounded-md">
-                      <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
-                    </button>
-                  </div>
-
-                  {/* Browser Content */}
-                  <div className="flex-1 relative bg-white">
-                    {screenshot ? (
-                      <img 
-                        src={screenshot} 
-                        alt="Browser View" 
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                        <div className="text-center">
-                          <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-4 border border-gray-100">
-                            <Monitor className="w-8 h-8 text-gray-200" />
-                          </div>
-                          <p className="text-sm text-gray-400 font-medium">Waiting for agent to start browser...</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Terminal Overlay */}
-                    <div className="absolute bottom-4 left-4 right-4 h-48 glass-panel rounded-2xl overflow-hidden shadow-xl border border-white/40 flex flex-col">
-                      <div className="px-4 py-2 border-b border-white/20 flex items-center justify-between bg-white/40">
-                        <div className="flex items-center gap-2">
-                          <TerminalIcon className="w-3.5 h-3.5 text-manus-text-secondary" />
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-manus-text-secondary">Terminal</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => setLogFilter('All')}
-                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                              logFilter === 'All' ? 'bg-white/10 text-white' 
-                              : 'hover:bg-white/5 text-gray-400'}`}>
-                            All Logs
-                          </button>
-                          <button onClick={() => setLogFilter('Errors')}
-                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                              logFilter === 'Errors' ? 'bg-white/10 text-white' 
-                              : 'hover:bg-white/5 text-gray-400'}`}>
-                            Errors
-                          </button>
-                          <button onClick={() => setLogFilter('System')}
-                            className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                              logFilter === 'System' ? 'bg-white/10 text-white' 
-                              : 'hover:bg-white/5 text-gray-400'}`}>
-                            System
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex-1 p-4 font-mono text-[12px] overflow-y-auto bg-black/5 custom-scrollbar">
-                        {logs.filter(l => ['tool','observation','infrastructure'].includes(l.type)).length === 0 ? (
-                          <div className="text-gray-400 italic">No terminal output yet...</div>
-                        ) : (
-                          logs.filter(l => ['tool','observation','infrastructure'].includes(l.type)).map((l, i) => (
-                            <div key={i} className="mb-1">
-                              <span className="text-blue-500 mr-2">$</span>
-                              <span className="text-gray-700">{l.text}</span>
-                            </div>
-                          ))
-                        )}
-                        <div className="flex items-center gap-1">
-                          <span className="text-blue-500">$</span>
-                          <span className="w-2 h-4 bg-blue-500 cursor-blink" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'thoughts' && (
-                <div className="absolute inset-0 p-8 overflow-y-auto custom-scrollbar">
-                  <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-                    {/* Column 1: Observations */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Eye className="w-4 h-4 text-blue-500" />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">Observations</h3>
-                      </div>
-                      {monologue.observations.map((obs, i) => (
-                        <div key={i} className="glass-panel p-4 rounded-2xl text-[13px] leading-relaxed fade-in-up" style={{ animationDelay: `${i * 0.1}s` }}>
-                          {obs}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Column 2: Thoughts */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Brain className="w-4 h-4 text-purple-500" />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">Internal Monologue</h3>
-                      </div>
-                      {monologue.thoughts.map((thought, i) => (
-                        <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-[13px] leading-relaxed fade-in-up" style={{ animationDelay: `${i * 0.15}s` }}>
-                          {thought}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Column 3: Actions */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Zap className="w-4 h-4 text-yellow-500" />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">Actions</h3>
-                      </div>
-                      {monologue.actions.map((action, i) => (
-                        <div key={i} className="bg-gray-900 p-4 rounded-2xl text-[13px] text-white font-mono fade-in-up" style={{ animationDelay: `${i * 0.2}s` }}>
-                          <div className="text-blue-400 mb-1">{typeof action === 'object' ? action.tool : 'action'}</div>
-                          <div className="text-gray-400 text-[11px] line-clamp-3">{typeof action === 'object' ? action.result : String(action)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'logs' && (
-                <div className="absolute inset-0 flex flex-col bg-[#0D1117]">
-                  <div className="p-4 border-b border-white/10 flex items-center gap-2">
-                    <button onClick={() => setLogFilter('All')}
-                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                        logFilter === 'All' ? 'bg-white/10 text-white' 
-                        : 'hover:bg-white/5 text-gray-400'}`}>
-                      All Logs
-                    </button>
-                    <button onClick={() => setLogFilter('Errors')}
-                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                        logFilter === 'Errors' ? 'bg-white/10 text-white' 
-                        : 'hover:bg-white/5 text-gray-400'}`}>
-                      Errors
-                    </button>
-                    <button onClick={() => setLogFilter('System')}
-                      className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                        logFilter === 'System' ? 'bg-white/10 text-white' 
-                        : 'hover:bg-white/5 text-gray-400'}`}>
-                      System
-                    </button>
-                  </div>
-                  <div className="flex-1 p-6 font-mono text-[12px] overflow-y-auto custom-scrollbar">
-                    {logs.filter(log => {
-                      if (logFilter === 'All') return true;
-                      if (logFilter === 'Errors') return log.type === 'error';
-                      if (logFilter === 'System') return log.type === 'infrastructure';
-                      return true;
-                    }).map((log, i) => (
-                      <div key={i} className="mb-2 flex gap-4">
-                        <span className="text-gray-600 w-20 flex-shrink-0">{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}</span>
-                        <span className={`w-24 flex-shrink-0 font-bold uppercase tracking-tighter ${getLogColor(log.type)}`}>[{log.type}]</span>
-                        <span className="text-gray-300 break-all">{log.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'preview' && (
-                <div className="absolute inset-0 flex items-center justify-center p-12">
-                  <div className="max-w-md w-full glass-panel p-8 rounded-[32px] text-center">
-                    <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <Globe className="w-10 h-10 text-blue-500" />
-                    </div>
-                    <h2 className="text-xl font-bold mb-2">Live Preview</h2>
-                    <p className="text-sm text-manus-text-secondary mb-8">Your application is running and accessible via the following URL.</p>
-                    
-                    <div className="bg-white rounded-2xl p-4 border border-gray-100 mb-6 flex items-center justify-between">
-                      <span className="text-sm font-medium text-manus-accent truncate mr-4">
-                        {previewUrl || 'Waiting for server...'}
-                      </span>
-                      <div className="flex gap-2">
-                        <button className="p-2 hover:bg-gray-50 rounded-lg transition-colors">
-                          <Copy className="w-4 h-4 text-gray-400" />
-                        </button>
-                        <button 
-                          onClick={() => previewUrl && window.open(previewUrl, '_blank')}
-                          className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
-                        >
-                          <ExternalLink className="w-4 h-4 text-gray-400" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      onClick={() => previewUrl && window.open(previewUrl, '_blank')}
-                      disabled={!previewUrl}
-                      className="w-full py-4 bg-manus-text-primary text-white rounded-2xl font-semibold hover:bg-black transition-all disabled:opacity-50"
-                    >
-                      Open in New Tab
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'batch' && batchStatus && (
-                <div className="absolute inset-0 p-8 overflow-y-auto custom-scrollbar bg-gray-50">
-                  <div className="max-w-3xl mx-auto">
-                    <div className="flex items-center justify-between mb-8">
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Batch Status</h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                          {batchStatus.complete + batchStatus.failed} / {batchStatus.total} tasks complete
-                        </p>
-                      </div>
-                      <div className="flex gap-4 text-sm font-medium">
-                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-gray-400"></div>{batchStatus.queued} Queued</div>
-                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 pulse-dot"></div>{batchStatus.running} Running</div>
-                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500"></div>{batchStatus.complete} Complete</div>
-                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500"></div>{batchStatus.failed} Failed</div>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      {batchStatus.items.map((item, i) => (
-                        <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
-                          <div className="flex items-center gap-4 flex-1">
-                            <div className="text-gray-400 font-mono text-xs w-6">{item.position + 1}.</div>
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-gray-900">{item.goal}</p>
-                              {item.task_id && (
-                                <button 
-                                  onClick={() => {
-                                    setTaskId(item.task_id);
-                                    setActiveTab('computer');
-                                  }}
-                                  className="text-[10px] font-mono text-blue-500 hover:underline mt-1"
-                                >
-                                  {item.task_id}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <div className="ml-4 flex-shrink-0">
-                            {item.status === 'QUEUED' && <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold uppercase tracking-wider">Queued</span>}
-                            {item.status === 'RUNNING' && <span className="px-3 py-1 bg-blue-100 text-blue-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 pulse-dot"></div>Running</span>}
-                            {item.status === 'COMPLETE' && <span className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-xs font-bold uppercase tracking-wider">Complete</span>}
-                            {item.status === 'FAILED' && <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-bold uppercase tracking-wider">Failed</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Floating Command Bar */}
-        <div className="command-bar-container">
-          {batchMode ? (
-            <div className="glass-panel p-4 rounded-3xl shadow-2xl w-full max-w-3xl mx-auto flex flex-col gap-3">
-              <div className="flex items-center justify-between px-2">
-                <h3 className="text-sm font-bold text-manus-text-primary">Batch Tasks</h3>
-                <button onClick={() => setIsBatchMode(false)} className="text-xs text-gray-500 hover:text-gray-800">Cancel</button>
-              </div>
-              <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 px-2">
-                {batchGoals.map((g, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-400 w-4">{i + 1}.</span>
-                    <input
-                      type="text"
-                      value={g}
-                      onChange={(e) => {
-                        const newGoals = [...batchGoals];
-                        newGoals[i] = e.target.value;
-                        setBatchGoals(newGoals);
-                      }}
-                      placeholder="Enter task goal..."
-                      className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-manus-accent"
-                    />
-                    {batchGoals.length > 1 && (
-                      <button onClick={() => setBatchGoals(batchGoals.filter((_, idx) => idx !== i))} className="p-2 text-red-400 hover:bg-red-50 rounded-lg">
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between px-2 pt-2">
-                <button
-                  onClick={() => batchGoals.length < 10 && setBatchGoals([...batchGoals, ''])}
-                  disabled={batchGoals.length >= 10}
-                  className="text-xs font-semibold text-manus-accent hover:text-blue-700 disabled:opacity-50"
-                >
-                  + Add another goal
-                </button>
-                <button
-                  onClick={async () => {
-                    const validGoals = batchGoals.filter(g => g.trim());
-                    if (!validGoals.length) return;
-                    try {
-                      const res = await fetch(`${API_URL}/api/batch`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNOD_API_KEY },
-                        body: JSON.stringify({ goals: validGoals })
-                      });
-                      if (res.ok) {
-                        const data = await res.json();
-                        setBatchId(data.batch_id);
-                        setIsBatchMode(false);
-                        setBatchGoals(['']);
-                        setActiveTab('batch');
-                      }
-                    } catch (err) {
-                      console.error('Batch submit error:', err);
-                    }
-                  }}
-                  disabled={!batchGoals.some(g => g.trim())}
-                  className="px-6 py-2 bg-manus-text-primary text-white rounded-xl text-sm font-semibold hover:bg-black disabled:opacity-50"
-                >
-                  Submit Batch
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="command-bar">
-              <Search className="w-5 h-5 text-gray-400 mr-2" />
-              <input 
-                type="text"
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleExecute()}
-                placeholder="What can I help you build today?"
-                className="command-input"
-              />
-              <button onClick={() => setIsBatchMode(true)} className="p-2 text-gray-400 hover:text-manus-accent mr-1" title="Batch Mode">
-                <List className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={handleExecute}
-                disabled={!goal || (status !== 'IDLE' && status !== 'COMPLETE' && status !== 'FAIL')}
-                className="w-10 h-10 bg-[#111827] text-white rounded-full flex items-center justify-center hover:bg-black transition-all disabled:opacity-30 shadow-lg"
-              >
-                <ArrowUp className="w-5 h-5" />
-              </button>
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-8 space-y-8">
+          {logs.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400">
+              <Brain className="w-16 h-16 mb-4 opacity-20" />
+              <p className="text-lg font-medium">How can I help you build today?</p>
             </div>
           )}
+          {logs.map((log, i) => (
+            <div key={i} className="flex gap-4 max-w-3xl mx-auto">
+              <div className="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">A</div>
+              <div className="flex-1 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <p className="text-sm text-gray-800 leading-relaxed">{log.text}</p>
+              </div>
+            </div>
+          ))}
+          <div ref={logsEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="p-6 bg-white border-t border-gray-200">
+          <div className="relative">
+            <input
+              type="text"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="What should I build next?"
+              className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              onKeyDown={(e) => e.key === 'Enter' && handleExecute()}
+            />
+            <button 
+              onClick={handleExecute}
+              className="absolute right-2 top-2 p-1.5 bg-gray-900 text-white rounded-md"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </main>
-
-      {/* Timeline - Execution Plan */}
-      <aside className={`manus-timeline ${isTimelineOpen ? 'active' : ''}`}>
-        <div className="glass-panel rounded-3xl p-6 flex flex-col h-full">
-          <div className="flex items-center gap-2 mb-8">
-            <ListChecks className="w-4 h-4 text-manus-accent" />
-            <h2 className="font-semibold text-sm tracking-tight">Execution Plan</h2>
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-            {plan.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-xs text-gray-400">Plan will appear once task starts</p>
-              </div>
-            ) : (
-              plan.map((step, i) => (
-                <div key={i} className="timeline-item">
-                  <div className={`timeline-dot ${getStepStatusColor(step.status)}`} />
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ${
-                      step.agent === 'deepseek' ? 'bg-purple-900 text-purple-100' :
-                      step.agent === 'gemini' ? 'bg-gradient-to-br from-blue-400 to-green-400 text-white' :
-                      'bg-gray-100 text-gray-500'
-                    }`}>
-                      {step.agent === 'deepseek' ? 'R1' : 
-                       step.agent === 'gemini' ? 'GEM' : 
-                       step.agent === 'software_engineer' ? 'S' : 
-                       step.agent === 'research_agent' ? 'R' : 'M'}
-                    </div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {step.agent.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p className={`text-[13px] leading-snug ${step.status === 'COMPLETED' ? 'text-gray-400 line-through' : 'text-manus-text-primary font-medium'}`}>
-                    {step.description}
-                  </p>
-                  {step.status === 'IN_PROGRESS' && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-manus-accent w-1/2 pulse-dot" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </aside>
-
-      {/* Diagnostics Modal */}
-      {isDiagnosticsOpen && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="glass-panel max-w-lg w-full p-8 rounded-[32px] shadow-2xl animate-fade-in-up">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-manus-accent/10 rounded-2xl flex items-center justify-center">
-                  <Activity className="w-6 h-6 text-manus-accent" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-manus-text-primary">System Health</h3>
-                  <p className="text-xs text-manus-text-secondary">Real-time configuration check</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsDiagnosticsOpen(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5 text-manus-text-secondary" />
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              {/* Frontend Variables (Always visible) */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Frontend (VITE) Variables</h4>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    'VITE_API_URL', 'VITE_SYNOD_API_KEY', 'VITE_FIREBASE_API_KEY', 
-                    'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'
-                  ].map(key => {
-                    const exists = !!import.meta.env[key];
-                    return (
-                      <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
-                        <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
-                        {exists ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                        ) : (
-                          <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Backend Connection */}
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                <div className="flex items-center gap-3">
-                  <Server className="w-5 h-5 text-manus-text-secondary" />
-                  <span className="font-medium text-manus-text-primary">Backend API</span>
-                </div>
-                <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${isCheckingDiagnostics ? 'bg-blue-100 text-blue-600' : diagnostics?.error ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                  <div className={`w-2 h-2 rounded-full ${isCheckingDiagnostics ? 'bg-blue-500' : diagnostics?.error ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
-                  {isCheckingDiagnostics ? 'Checking...' : diagnostics?.error ? 'Offline / Error' : 'Online'}
-                </div>
-              </div>
-
-              {diagnostics?.error && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600">
-                  <strong>Connection Error:</strong> {diagnostics.error}. Check if your backend is running and VITE_SYNOD_API_KEY is correct.
-                </div>
-              )}
-
-              {diagnostics && !diagnostics.error && (
-                <>
-                  {/* API Keys */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-1">
-                      <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider">Backend Environment</h4>
-                      <span className="text-[10px] font-bold text-manus-accent bg-manus-accent/10 px-2 py-0.5 rounded-full">
-                        {Object.values(diagnostics.environment).filter(v => v).length} / {Object.keys(diagnostics.environment).length} Set
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                      {Object.entries(diagnostics.environment).map(([key, exists]) => (
-                        <div key={key} className={`flex items-center justify-between p-2.5 border rounded-xl transition-all ${exists ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
-                          <span className={`text-[10px] font-mono truncate mr-2 ${exists ? 'text-manus-text-secondary' : 'text-red-600 font-bold'}`}>{key}</span>
-                          {exists ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Services */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-manus-text-secondary uppercase tracking-wider px-1">Cloud Services</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Database className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Firestore Database</span>
-                          </div>
-                          {diagnostics.services.firestore ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Connected
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.firestore && diagnostics.errors?.firestore && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.firestore}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Box className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">E2B Sandbox</span>
-                          </div>
-                          {diagnostics.services.sandbox ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Ready
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Not Configured</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.sandbox && diagnostics.errors?.sandbox && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.sandbox}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Playwright</span>
-                          </div>
-                          {diagnostics.services.playwright ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Ready
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Module Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.playwright && diagnostics.errors?.playwright && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.playwright}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Supabase Vector Memory</span>
-                          </div>
-                          {diagnostics.services.supabase ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Ready
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Not Configured</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.supabase && diagnostics.errors?.supabase && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.supabase}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Groq API */}
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Groq API</span>
-                          </div>
-                          {diagnostics.services.groq ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Working
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.groq && diagnostics.errors?.groq && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.groq}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Anthropic API */}
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Anthropic API</span>
-                          </div>
-                          {diagnostics.services.anthropic ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Working
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.anthropic && diagnostics.errors?.anthropic && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.anthropic}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Gemini API */}
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">Gemini API</span>
-                          </div>
-                          {diagnostics.services.gemini ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Working
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.gemini && diagnostics.errors?.gemini && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.gemini}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* HuggingFace API */}
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">HuggingFace API</span>
-                          </div>
-                          {diagnostics.services.huggingface ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Working
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.huggingface && diagnostics.errors?.huggingface && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.huggingface}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* SerpApi */}
-                      <div className="flex flex-col p-3 bg-white border border-gray-100 rounded-xl">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-manus-text-secondary" />
-                            <span className="text-sm text-manus-text-primary">SerpApi</span>
-                          </div>
-                          {diagnostics.services.serpapi ? (
-                            <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Working
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-red-600">Error / Missing</span>
-                          )}
-                        </div>
-                        {!diagnostics.services.serpapi && diagnostics.errors?.serpapi && (
-                          <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-1.5 rounded border border-red-100 break-all">
-                            {diagnostics.errors.serpapi}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {diagnostics?.error && (
-                <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
-                  <p className="text-sm text-red-600 font-medium mb-1">Connection Error</p>
-                  <p className="text-xs text-red-500 leading-relaxed">
-                    The frontend cannot reach the backend at <code className="bg-red-100 px-1 rounded">{API_URL}</code>. 
-                    Check your <code className="bg-red-100 px-1 rounded">VITE_API_URL</code> and ensure the backend is running.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <button 
-              onClick={checkDiagnostics}
-              disabled={isCheckingDiagnostics}
-              className="w-full mt-8 py-4 bg-manus-accent text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
-            >
-              {isCheckingDiagnostics ? 'Checking...' : 'Refresh Status'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmation Modal */}
-      {pendingAction && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="glass-panel max-w-md w-full p-8 rounded-[32px] shadow-2xl animate-fade-in-up">
-            <div className="w-16 h-16 bg-manus-accent/10 rounded-full flex items-center justify-center mb-6">
-              <AlertCircle className="w-8 h-8 text-manus-accent" />
-            </div>
-            <h3 className="text-xl font-bold text-manus-text-primary mb-2">Confirm Action</h3>
-            <p className="text-sm text-manus-text-secondary mb-6 leading-relaxed">
-              Awais Codex wants to execute a sensitive action: 
-              <code className="block mt-2 p-3 bg-gray-100 rounded-xl text-manus-text-primary font-mono text-xs">
-                {pendingAction.name}({JSON.stringify(pendingAction.params)})
-              </code>
-            </p>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => handleConfirm(false)}
-                className="flex-1 py-3 px-4 bg-gray-100 text-manus-text-primary rounded-2xl font-semibold hover:bg-gray-200 transition-all"
-              >
-                Reject
-              </button>
-              <button 
-                onClick={() => handleConfirm(true)}
-                className="flex-1 py-3 px-4 bg-manus-accent text-white rounded-2xl font-semibold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
-              >
-                Approve
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Error Toast */}
-      {error && (
-        <div className="fixed top-6 right-6 z-[1000] toast-enter">
-          <div className="glass-panel border-l-4 border-l-red-500 p-4 rounded-2xl flex items-start gap-4 max-w-md shadow-2xl">
-            <div className="w-8 h-8 bg-red-50 rounded-full flex items-center justify-center flex-shrink-0">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-sm font-bold text-red-900 mb-1">Execution Error</h4>
-              <p className="text-xs text-red-700 line-clamp-3 leading-relaxed">{error}</p>
-            </div>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

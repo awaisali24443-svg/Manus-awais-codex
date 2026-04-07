@@ -120,17 +120,21 @@ def scaffold_project(type: str, name: str) -> str:
     return f"Error scaffolding project: {result['stderr']}"
 
 def schedule_task(goal: str, cron: str) -> str:
-    """Schedules a recurring task using a cron expression."""
-    # In a real system, this would write to a database and a scheduler service would pick it up.
-    # For this implementation, we'll log it and assume a background process handles it.
+    """Stores a scheduled task in local memory for future execution."""
     try:
-        # Validate cron format (simple check)
         if len(cron.split()) != 5:
-            return "Error: Invalid cron expression. Must have 5 fields (e.g., '0 0 * * *')."
+            return "Error: Invalid cron expression (needs 5 fields)."
         
-        # Here we would call a scheduler service
-        # For now, we'll just return success as if it was added to a persistent store
-        return f"Successfully scheduled task '{goal}' with cron '{cron}'"
+        from synod.memory.local_memory import LocalMemory
+        mem = LocalMemory()
+        mem.set_preference(
+            f"scheduled_{goal[:30]}", 
+            {"goal": goal, "cron": cron, "created_at": str(__import__('datetime').datetime.now())}
+        )
+        return (
+            f"Scheduled task stored: '{goal}' with cron '{cron}'. "
+            f"NOTE: A background worker must be configured to execute this."
+        )
     except Exception as e:
         return f"Error scheduling task: {str(e)}"
 

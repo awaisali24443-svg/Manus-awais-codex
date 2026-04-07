@@ -1,6 +1,7 @@
 import asyncio
 import re
 import logging
+import os
 from typing import Optional
 from dataclasses import dataclass
 
@@ -8,6 +9,8 @@ from .master_agent import MasterAgent
 from .software_engineer import SoftwareEngineer
 from .logic_agent import LogicAgent
 from .research_agent import ResearchAgent
+from .gemma_agent import GemmaAgent
+from .qwen_agent import QwenAgent
 
 @dataclass
 class HookResult:
@@ -78,10 +81,10 @@ class AgentOrchestrator:
         self.logic_agent = LogicAgent()
         self.research_agent = ResearchAgent()
         
-        from .deepseek_agent import DeepSeekAgent
-        from .gemini_agent import GeminiAgent
-        self.deepseek = DeepSeekAgent()
-        self.gemini = GeminiAgent()
+        self._deepseek = None
+        self._gemini = None
+        self._gemma = None
+        self._qwen = None
         
         self.hooks = OrchestratorHooks()
         self.logger = logging.getLogger(__name__)
@@ -92,6 +95,44 @@ class AgentOrchestrator:
         
         # Cross-agent shared context bus
         self._shared_context: dict = {}
+
+    @property
+    def deepseek(self):
+        if self._deepseek is None and os.getenv("GROQ_API_KEY"):
+            try:
+                from .deepseek_agent import DeepSeekAgent
+                self._deepseek = DeepSeekAgent()
+            except Exception as e:
+                self.logger.warning(f"DeepSeek unavailable: {e}")
+        return self._deepseek
+
+    @property
+    def gemini(self):
+        if self._gemini is None and os.getenv("GEMINI_API_KEY"):
+            try:
+                from .gemini_agent import GeminiAgent
+                self._gemini = GeminiAgent()
+            except Exception as e:
+                self.logger.warning(f"Gemini unavailable: {e}")
+        return self._gemini
+
+    @property
+    def gemma(self):
+        if self._gemma is None and os.getenv("HUGGINGFACE_API_KEY"):
+            try:
+                self._gemma = GemmaAgent()
+            except Exception as e:
+                self.logger.warning(f"Gemma unavailable: {e}")
+        return self._gemma
+
+    @property
+    def qwen(self):
+        if self._qwen is None and os.getenv("HF_QWEN_API_KEY"):
+            try:
+                self._qwen = QwenAgent()
+            except Exception as e:
+                self.logger.warning(f"Qwen unavailable: {e}")
+        return self._qwen
 
     async def orchestrate(
         self,
@@ -191,12 +232,28 @@ class AgentOrchestrator:
             "step by step", "logic", "reasoning", "deduce"
         ]
         
+        # Gemma keywords — reasoning + logic
+        GEMMA_KEYWORDS = [
+            "reason", "logic", "plan", "analyze", "deduce", "step by step"
+        ]
+        
+        # Qwen keywords — coding + software engineering
+        QWEN_KEYWORDS = [
+            "write code", "implement", "create file", "build",
+            "develop", "function", "class", "refactor",
+            "scaffold", "add feature", "fix the code"
+        ]
+        
         # Vision always prefers Gemini if available
-        if image_data:
+        if image_data and self.gemini:
             return "gemini"
         
         if any(k in s for k in DEEPSEEK_KEYWORDS):
             return "deepseek"
+        if any(k in s for k in GEMMA_KEYWORDS):
+            return "gemma"
+        if any(k in s for k in QWEN_KEYWORDS):
+            return "qwen"
         if any(k in s for k in GEMINI_KEYWORDS):
             return "gemini"
         if any(k in s for k in CODE):
@@ -278,10 +335,18 @@ class AgentOrchestrator:
                 return await self.logic_agent.solve(step, context)
             elif name == "research_agent":
                 return await self.research_agent.research(step, context)
-            elif name == "deepseek":
+            elif name == "deepseek" and self.deepseek:
                 return await self.deepseek.reason(step, context)
-            elif name == "gemini":
+            elif name == "deepseek":
+                return await self.logic_agent.solve(step, context)
+            elif name == "gemini" and self.gemini:
                 return await self.gemini.generate(step, context, image_data)
+            elif name == "gemma" and self.gemma:
+                return await self.gemma.generate(step, context, image_data)
+            elif name == "qwen" and self.qwen:
+                return await self.qwen.generate_code(step, context, image_data)
+            elif name == "gemini":
+                return await self.research_agent.research(step, context)
             else:
                 return await self.logic_agent.solve(step, context)
         

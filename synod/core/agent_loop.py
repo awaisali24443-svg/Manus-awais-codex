@@ -87,7 +87,7 @@ class AgentLoop:
             
         # Start persistent DevBox container
         from synod.tools.sandbox import DevBox
-        DevBox.start()
+        await asyncio.to_thread(DevBox.start)
         self.task_memory.save_event(task_id, "infrastructure", "DevBox Online", "system")
         self.task_manager.log_event(task_id, "DevBox Online", "infrastructure")
         
@@ -96,7 +96,7 @@ class AgentLoop:
             token = os.getenv("GITHUB_TOKEN", "")
             repo = os.getenv("GITHUB_REPO_URL", "")
             if token and repo:
-                git_operations("pull", repo, token)
+                await asyncio.to_thread(git_operations, "pull", repo, token)
                 self.task_manager.log_event(task_id, "Git pull successful.", "infrastructure")
         except Exception as e:
             self.task_manager.log_event(task_id, f"Git pull skipped: {e}", "infrastructure")
@@ -109,12 +109,12 @@ class AgentLoop:
                 break
             try:
                 task.status = await handler(task)
-                self.task_manager.save_task(task)
+                await asyncio.to_thread(self.task_manager.save_task, task)
             except Exception as e:
                 error_trace = traceback.format_exc()
-                self.task_memory.save_event(task_id, "error", error_trace, "system")
+                await asyncio.to_thread(self.task_memory.save_event, task_id, "error", error_trace, "system")
                 task.fail_or_retry()
-                self.task_manager.save_task(task)
+                await asyncio.to_thread(self.task_manager.save_task, task)
         
         # Step 4: try git commit safely
         try:
@@ -122,8 +122,8 @@ class AgentLoop:
             repo = os.getenv("GITHUB_REPO_URL", "")
             if token and repo:
                 msg = f"Synod: {task.goal[:50]} - {task.status.value}"
-                git_operations("commit", repo, token, message=msg)
-                git_operations("push", repo, token)
+                await asyncio.to_thread(git_operations, "commit", repo, token, message=msg)
+                await asyncio.to_thread(git_operations, "push", repo, token)
         except Exception as e:
             self.task_manager.log_event(task_id, f"Git push skipped: {e}")
         finally:
@@ -134,7 +134,7 @@ class AgentLoop:
             except Exception:
                 pass
             # Stop DevBox when task is done
-            DevBox.stop()
+            await asyncio.to_thread(DevBox.stop)
             self.task_memory.save_event(task_id, "infrastructure", "DevBox Offline", "system")
             self.task_manager.log_event(task_id, "DevBox Offline", "infrastructure")
 
@@ -190,15 +190,15 @@ class AgentLoop:
         return State.EXECUTE
 
     async def _handle_execute(self, task: TaskState) -> State:
-        self.task_manager.log_event(task.task_id, "Executing plan...", "thought")
+        await asyncio.to_thread(self.task_manager.log_event, task.task_id, "Executing plan...", "thought")
         
         if not task.plan:
-            self.task_manager.log_event(task.task_id, "No plan found to execute.")
+            await asyncio.to_thread(self.task_manager.log_event, task.task_id, "No plan found to execute.")
             return State.FAIL
             
         pending_step = next((s for s in task.plan if isinstance(s, dict) and s.get("status") in ["PENDING", "IN_PROGRESS"]), None)
         if not pending_step:
-            self.task_manager.log_event(task.task_id, "All steps completed.")
+            await asyncio.to_thread(self.task_manager.log_event, task.task_id, "All steps completed.")
             return State.OBSERVE
             
         step_desc = pending_step.get("description", "")
@@ -284,13 +284,17 @@ class AgentLoop:
                     is_sensitive = False
                     if parsed["tool_name"] == "run_bash":
                         cmd = parsed["tool_params"].get("command", "").lower()
-                        if any(x in cmd for x in ["rm ", "sudo ", "kill ", "apt ", "npm install"]):
+                        if any(x in cmd for x in ["rm -rf", "sudo ", "kill -9", "mkfs", "dd if="]):
                             is_sensitive = True
                     elif parsed["tool_name"] == "git_operations":
                         if parsed["tool_params"].get("action") in ["push", "commit"]:
                             is_sensitive = True
-                    elif parsed["tool_name"] == "write_file" or parsed["tool_name"] == "edit_file":
-                        is_sensitive = True # Always confirm file writes for now to be safe
+                    elif parsed["tool_name"] in ["write_file", "edit_file"]:
+                        path_param = parsed["tool_params"].get("path", "") if parsed["tool_params"] else ""
+                        SYSTEM_PATHS = ["/etc/", "/usr/", "/bin/", "/sbin/", "/boot/"]
+                        if any(path_param.startswith(p) for p in SYSTEM_PATHS):
+                            is_sensitive = True
+                        # workspace writes are safe — never require confirmation
                     elif parsed["tool_name"] == "schedule_task":
                         is_sensitive = True
 
@@ -341,13 +345,25 @@ class AgentLoop:
         # However, since the loop is running, we need to poll or wait for a signal.
         # In this implementation, we'll just sleep and check the status.
         self.task_manager.log_event(task.task_id, "Waiting for user confirmation...")
-        while task.status == State.CONFIRM:
+        max_wait_seconds = 300  # 5 minutes
+        waited = 0
+        while task.status == State.CONFIRM and waited < max_wait_seconds:
             await asyncio.sleep(2)
-            # Refresh task from DB
+            waited += 2
             updated_task = self.task_manager.get_task(task.task_id)
             if updated_task:
                 task.status = updated_task.status
                 task.pending_action = updated_task.pending_action
+        
+        if waited >= max_wait_seconds:
+            self.task_manager.log_event(
+                task.task_id,
+                "Confirmation timed out after 5 minutes. Task failed.",
+                "error"
+            )
+            task.status = State.FAIL
+            self.task_manager.save_task(task)
+            return State.FAIL
         
         if task.status == State.EXECUTE and task.pending_action:
             # User confirmed!
