@@ -14,6 +14,7 @@ class TaskManager:
         task = TaskState(
             task_id=data.get("task_id", ""),
             goal=data.get("goal", ""),
+            uid=data.get("uid", ""),
             current_step=data.get("current_step", ""),
             plan=data.get("plan", []),
             status=State(data.get("status", "IDLE")),
@@ -29,6 +30,7 @@ class TaskManager:
         return {
             "task_id": task.task_id,
             "goal": task.goal,
+            "uid": getattr(task, 'uid', ""),
             "current_step": task.current_step,
             "plan": task.plan,
             "status": task.status.value,
@@ -39,10 +41,11 @@ class TaskManager:
             "monologue": task.monologue
         }
 
-    def create_task(self, goal: str) -> TaskState:
+    def create_task(self, goal: str, uid: str = "") -> TaskState:
         """Creates a new task and sets it to IDLE."""
         task_id = str(uuid.uuid4())
         task = TaskState(task_id=task_id, goal=goal)
+        task.uid = uid
         self.tasks_collection.document(task_id).set(self._task_to_dict(task))
         self.local_memory.save_task(task_id, goal, "IDLE")
         self.log_event(task_id, f"Task created with goal: {goal}")

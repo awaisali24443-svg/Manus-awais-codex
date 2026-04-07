@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User account and preferences",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "avatar": { "type": "string", "description": "Avatar URL or initials" },
+        "role": { "type": "string", "enum": ["Owner", "Admin", "Member"], "description": "User role" },
+        "preferences": {
+          "type": "object",
+          "properties": {
+            "darkMode": { "type": "boolean", "description": "Dark mode preference" },
+            "notifications": {
+              "type": "object",
+              "properties": {
+                "email": { "type": "boolean", "description": "Email notifications" },
+                "push": { "type": "boolean", "description": "Push notifications" }
+              }
+            }
+          }
+        }
+      },
+      "required": ["name", "email"]
+    },
+    "TeamMember": {
+      "title": "Team Member",
+      "description": "Member of the team",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["Owner", "Admin", "Member"] },
+        "status": { "type": "string", "enum": ["Active", "Pending"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["name", "email", "role", "status"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "User subscription details",
+      "type": "object",
+      "properties": {
+        "planName": { "type": "string" },
+        "price": { "type": "string" },
+        "features": { "type": "array", "items": { "type": "string" } },
+        "nextRenewal": { "type": "string", "format": "date-time" },
+        "usage": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and settings"
+    },
+    "/team/{memberId}": {
+      "schema": "TeamMember",
+      "description": "Team members list"
+    },
+    "/subscriptions/{userId}": {
+      "schema": "Subscription",
+      "description": "User subscription details"
+    }
+  }
+}

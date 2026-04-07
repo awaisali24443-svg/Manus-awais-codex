@@ -1,5 +1,6 @@
-import React from 'react';
-import { Moon, Sun, Trash2, Globe, Monitor, Zap, Layout } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Moon, Sun, Monitor, Globe, Clock, Trash2, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { db, doc, onSnapshot, updateDoc, User as FirebaseUser } from '../../firebase';
 
 const Toggle = ({ enabled, onChange }) => (
   <button
@@ -10,77 +11,119 @@ const Toggle = ({ enabled, onChange }) => (
   </button>
 );
 
-export default function PreferencesSettings({ darkMode, setDarkMode, clearHistory }) {
+export default function PreferencesSettings({ user, clearHistory }: { user: FirebaseUser | null, clearHistory: () => void }) {
+  const [preferences, setPreferences] = useState({
+    darkMode: false,
+    language: 'English (US)',
+    timezone: 'UTC -7:00'
+  });
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.preferences) {
+          setPreferences(prev => ({ ...prev, ...data.preferences }));
+        }
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
+  const updatePreference = async (key: string, value: any) => {
+    if (!user) return;
+    const newPrefs = { ...preferences, [key]: value };
+    setPreferences(newPrefs);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { preferences: newPrefs });
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update preferences', err);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
+        <Monitor className="w-16 h-16 mb-4 opacity-10" />
+        <p className="text-lg font-medium">Please sign in to view preferences.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-1">
-        <h3 className="text-2xl font-bold text-gray-900 tracking-tight">Preferences</h3>
-        <p className="text-gray-500 text-sm">Customize your workspace and application behavior.</p>
+        <div className="flex items-center justify-between">
+          <h3 className="text-2xl font-bold text-gray-900 tracking-tight">Preferences</h3>
+          {showSuccess && (
+            <div className="flex items-center gap-2 text-green-600 text-xs font-bold animate-fade-in">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+            </div>
+          )}
+        </div>
+        <p className="text-gray-500 text-sm">Customize your workspace experience and interface settings.</p>
       </div>
 
       <div className="space-y-4">
-        <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-gray-300 transition-all">
+        <div className="p-6 sm:p-8 bg-white rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between group hover:border-gray-300 transition-all">
           <div className="flex items-center gap-4 sm:gap-6">
             <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center group-hover:scale-110 transition-transform">
-              {darkMode ? <Moon className="w-6 h-6 text-gray-900" /> : <Sun className="w-6 h-6 text-gray-900" />}
+              {preferences.darkMode ? <Moon className="w-6 h-6 text-gray-900" /> : <Sun className="w-6 h-6 text-gray-900" />}
             </div>
             <div>
-              <h4 className="font-bold text-gray-900 text-lg">Appearance</h4>
+              <h4 className="font-bold text-gray-900 text-lg">Dark Mode</h4>
               <p className="text-sm text-gray-500 font-medium">Switch between light and dark themes.</p>
             </div>
           </div>
-          <Toggle enabled={darkMode} onChange={() => setDarkMode(!darkMode)} />
+          <Toggle enabled={preferences.darkMode} onChange={() => updatePreference('darkMode', !preferences.darkMode)} />
         </div>
 
-        <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-gray-300 transition-all">
+        <div className="p-6 sm:p-8 bg-white rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between group hover:border-gray-300 transition-all cursor-pointer">
           <div className="flex items-center gap-4 sm:gap-6">
             <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center group-hover:scale-110 transition-transform">
               <Globe className="w-6 h-6 text-gray-900" />
             </div>
             <div>
               <h4 className="font-bold text-gray-900 text-lg">Language</h4>
-              <p className="text-sm text-gray-500 font-medium">Select your preferred display language.</p>
+              <p className="text-sm text-gray-500 font-medium">{preferences.language}</p>
             </div>
           </div>
-          <button className="px-4 py-2 bg-gray-100 text-gray-900 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all">English (US)</button>
+          <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-900 transition-colors" />
         </div>
 
-        <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-gray-300 transition-all">
+        <div className="p-6 sm:p-8 bg-white rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between group hover:border-gray-300 transition-all cursor-pointer">
           <div className="flex items-center gap-4 sm:gap-6">
             <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Zap className="w-6 h-6 text-gray-900" />
+              <Clock className="w-6 h-6 text-gray-900" />
             </div>
             <div>
-              <h4 className="font-bold text-gray-900 text-lg">Auto-save</h4>
-              <p className="text-sm text-gray-500 font-medium">Automatically save your changes in real-time.</p>
+              <h4 className="font-bold text-gray-900 text-lg">Timezone</h4>
+              <p className="text-sm text-gray-500 font-medium">{preferences.timezone}</p>
             </div>
           </div>
-          <Toggle enabled={true} onChange={() => {}} />
+          <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-900 transition-colors" />
         </div>
       </div>
 
-      <div className="p-8 bg-gray-50 rounded-2xl border border-gray-100">
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-            <Layout className="w-5 h-5 text-gray-400" />
+      <div className="p-8 bg-gray-50 rounded-2xl border border-gray-200">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-sm">
+            <Trash2 className="w-6 h-6 text-red-500" />
           </div>
-          <h4 className="text-lg font-bold text-gray-900">Workspace Layout</h4>
+          <div>
+            <h4 className="font-bold text-gray-900 text-lg">Clear History</h4>
+            <p className="text-sm text-gray-500 font-medium">Delete all your task history and logs.</p>
+          </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {['Default', 'Compact', 'Wide', 'Focus'].map((layout) => (
-            <button key={layout} className={`px-4 py-3 rounded-xl text-sm font-bold border transition-all ${layout === 'Default' ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
-              {layout}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="pt-6">
         <button 
-          onClick={clearHistory} 
-          className="w-full flex items-center justify-center gap-3 p-5 bg-red-50 text-red-600 rounded-2xl text-sm font-bold hover:bg-red-100 transition-all border border-red-100 group"
+          onClick={clearHistory}
+          className="px-8 py-3 bg-white text-red-600 border border-red-100 rounded-xl font-bold hover:bg-red-50 transition-all shadow-sm active:scale-[0.98] text-sm"
         >
-          <Trash2 className="w-5 h-5 group-hover:scale-110 transition-transform" /> Clear Chat & Agent History
+          Clear All History
         </button>
       </div>
     </div>

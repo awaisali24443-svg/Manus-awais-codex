@@ -105,6 +105,7 @@ class BatchRequest(BaseModel):
 
 class TaskRequest(BaseModel):
     goal: str
+    uid: str = ""
 
 @app.post("/api/batch")
 async def create_batch(
@@ -181,7 +182,7 @@ def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key
     if not request.goal.strip():
         raise HTTPException(status_code=400, detail="Goal cannot be empty")
         
-    task = task_manager.create_task(request.goal)
+    task = task_manager.create_task(request.goal, uid=request.uid)
     
     # Start the agent loop in the background
     background_tasks.add_task(run_agent_workflow, task.task_id, request.goal)
@@ -304,9 +305,13 @@ def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depends(ge
     return {"status": task.status.value}
 
 @app.get("/api/tasks")
-def list_tasks(api_key: str = Depends(get_api_key)):
-    # Firestore query for all tasks
-    docs = task_manager.tasks_collection.stream()
+def list_tasks(uid: str = None, api_key: str = Depends(get_api_key)):
+    # Firestore query for tasks
+    query = task_manager.tasks_collection
+    if uid:
+        query = query.where("uid", "==", uid)
+    
+    docs = query.stream()
     tasks = []
     for doc in docs:
         data = doc.to_dict()

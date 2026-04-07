@@ -1,7 +1,58 @@
-import React from 'react';
-import { User, Mail, Camera, Save, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User as UserIcon, Mail, Camera, Save, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { db, doc, onSnapshot, setDoc, User } from '../../firebase';
 
-export default function AccountSettings() {
+export default function AccountSettings({ user }: { user: User | null }) {
+  const [profile, setProfile] = useState({
+    name: '',
+    email: '',
+    role: 'Member',
+    avatar: ''
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      if (snap.exists()) {
+        setProfile(snap.data() as any);
+      } else {
+        // Initialize with auth data
+        setProfile({
+          name: user.displayName || '',
+          email: user.email || '',
+          role: 'Member',
+          avatar: user.photoURL || ''
+        });
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'users', user.uid), profile, { merge: true });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      console.error('Failed to save profile', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
+        <UserIcon className="w-16 h-16 mb-4 opacity-10" />
+        <p className="text-lg font-medium">Please sign in to view your account settings.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-1">
@@ -16,8 +67,8 @@ export default function AccountSettings() {
         <div className="px-8 pb-8">
           <div className="relative flex flex-col sm:flex-row sm:items-end gap-6 -mt-12">
             <div className="relative group">
-              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-gray-900 border-4 border-white flex items-center justify-center text-3xl sm:text-4xl font-bold text-white shadow-xl">
-                AA
+              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-gray-900 border-4 border-white flex items-center justify-center text-3xl sm:text-4xl font-bold text-white shadow-xl overflow-hidden">
+                {profile.avatar ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" /> : profile.name?.[0]?.toUpperCase() || 'U'}
               </div>
               <button className="absolute -bottom-2 -right-2 p-2.5 bg-white rounded-xl shadow-lg border border-gray-100 hover:bg-gray-50 transition-all hover:scale-110 active:scale-95 text-gray-600">
                 <Camera className="w-4.5 h-4.5" />
@@ -25,12 +76,12 @@ export default function AccountSettings() {
             </div>
             <div className="flex-1 mb-2">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="text-xl font-bold text-gray-900">Awais Ali</h4>
+                <h4 className="text-xl font-bold text-gray-900">{profile.name || 'Your Name'}</h4>
                 <ShieldCheck className="w-5 h-5 text-blue-500" />
               </div>
-              <p className="text-sm text-gray-500 font-medium mb-4">awaisali24443@gmail.com</p>
+              <p className="text-sm text-gray-500 font-medium mb-4">{profile.email}</p>
               <div className="flex gap-2">
-                <span className="px-2.5 py-0.5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider rounded-md">Owner</span>
+                <span className="px-2.5 py-0.5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider rounded-md">{profile.role}</span>
                 <span className="px-2.5 py-0.5 bg-green-50 text-green-600 text-[10px] font-bold uppercase tracking-wider rounded-md border border-green-100">Verified</span>
               </div>
             </div>
@@ -42,10 +93,12 @@ export default function AccountSettings() {
         <div className="space-y-2">
           <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Full Name</label>
           <div className="relative group">
-            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-gray-900 transition-colors" />
+            <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-gray-900 transition-colors" />
             <input 
               type="text" 
-              defaultValue="Awais Ali"
+              value={profile.name}
+              onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+              placeholder="John Doe"
               className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 transition-all font-medium text-gray-900"
             />
           </div>
@@ -56,17 +109,28 @@ export default function AccountSettings() {
             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-gray-900 transition-colors" />
             <input 
               type="email" 
-              defaultValue="awaisali24443@gmail.com"
-              className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 transition-all font-medium text-gray-900"
+              value={profile.email}
+              disabled
+              placeholder="john@example.com"
+              className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 transition-all font-medium text-gray-900 opacity-60 cursor-not-allowed"
             />
           </div>
         </div>
       </div>
 
       <div className="pt-8 border-t border-gray-200 flex flex-col sm:flex-row justify-end gap-3">
+        {saveSuccess && (
+          <div className="flex items-center gap-2 text-green-600 text-sm font-bold mr-auto animate-fade-in">
+            <CheckCircle2 className="w-4 h-4" /> Changes saved successfully!
+          </div>
+        )}
         <button className="px-6 py-3 text-gray-500 font-bold hover:text-gray-900 transition-colors text-sm">Cancel</button>
-        <button className="flex items-center justify-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-[0.98] text-sm">
-          <Save className="w-4 h-4" /> Save Changes
+        <button 
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex items-center justify-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-[0.98] text-sm disabled:opacity-50"
+        >
+          {isSaving ? 'Saving...' : <><Save className="w-4 h-4" /> Save Changes</>}
         </button>
       </div>
     </div>

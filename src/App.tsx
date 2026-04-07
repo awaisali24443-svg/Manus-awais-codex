@@ -5,11 +5,13 @@ import {
   Layout, MessageSquare, List, ExternalLink, Copy, Menu, X,
   Check, AlertTriangle, Send, History, Cpu, Globe, Search,
   Settings, Clock, ChevronLeft, ChevronRight, ListChecks,
-  Terminal as TerminalIcon, ArrowUp, Zap, Server, XCircle
+  Terminal as TerminalIcon, ArrowUp, Zap, Server, XCircle,
+  LogIn, User as UserIcon
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
-import { getDatabase, ref, onValue } from 'firebase/database';
+import { 
+  auth, db, rtdb, googleProvider, signInWithPopup, onAuthStateChanged,
+  doc, onSnapshot, ref, onValue, User
+} from './firebase';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import SettingsLayout from './components/SettingsLayout';
 import AccountSettings from './components/settings/AccountSettings';
@@ -24,22 +26,11 @@ import DiagnosticsSettings from './components/settings/DiagnosticsSettings';
 const API_URL = import.meta.env.VITE_API_URL || '';
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || '';
 
-// Initialize Firebase
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const rtdb = getDatabase(app);
-
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [goal, setGoal] = useState('');
   const [taskId, setTaskId] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -50,8 +41,25 @@ function AppContent() {
   const [pendingAction, setPendingAction] = useState(null);
   const [diagnostics, setDiagnostics] = useState(null);
   const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(null);
   const logsEndRef = useRef(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const clearHistory = () => {
     setLogs([]);
@@ -87,10 +95,20 @@ function AppContent() {
     }
   };
 
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
   useEffect(() => {
     const fetchTasks = async () => {
+      if (!user) {
+        setTasks([]);
+        return;
+      }
       try {
-        const res = await fetch(`${API_URL}/api/tasks`, {
+        const res = await fetch(`${API_URL}/api/tasks?uid=${user.uid}`, {
           headers: { 'X-API-Key': SYNOD_API_KEY }
         });
         const data = await res.json();
@@ -99,7 +117,11 @@ function AppContent() {
         console.error('Failed to fetch tasks', err);
       }
     };
-    fetchTasks();
+    if (isAuthReady) fetchTasks();
+  }, [user, isAuthReady]);
+
+  useEffect(() => {
+    checkDiagnostics();
   }, []);
 
   useEffect(() => {
@@ -138,6 +160,10 @@ function AppContent() {
 
   const handleExecute = async () => {
     if (!goal.trim()) return;
+    if (!user) {
+      setError('Please sign in to execute tasks.');
+      return;
+    }
     setStatus('RUNNING');
     setLogs([{ type: 'info', text: `Initializing task: ${goal}`, timestamp: Date.now() }]);
 
@@ -145,7 +171,7 @@ function AppContent() {
       const res = await fetch(`${API_URL}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNOD_API_KEY },
-        body: JSON.stringify({ goal })
+        body: JSON.stringify({ goal, uid: user.uid })
       });
       
       if (!res.ok) throw new Error('Failed to create task');
@@ -183,10 +209,23 @@ function AppContent() {
               ))}
             </div>
             <div className="p-4 border-t border-gray-100/50">
-              <button onClick={() => navigate('/settings/account')} className="w-full flex items-center gap-3 p-3 rounded-md hover:bg-gray-100/50 text-gray-700 transition-colors">
-                <Settings className="w-5 h-5" />
-                <span className="text-sm font-medium">Settings</span>
-              </button>
+              {user ? (
+                <button onClick={() => navigate('/settings/account')} className="w-full flex items-center gap-3 p-3 rounded-md hover:bg-gray-100/50 text-gray-700 transition-colors">
+                  <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-bold overflow-hidden">
+                    {user.photoURL ? <img src={user.photoURL} alt="" className="w-full h-full object-cover" /> : user.email?.[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-bold truncate">{user.displayName || 'User'}</p>
+                    <p className="text-[10px] text-gray-400 font-medium truncate">{user.email}</p>
+                  </div>
+                  <Settings className="w-4 h-4 text-gray-400" />
+                </button>
+              ) : (
+                <button onClick={handleLogin} className="w-full flex items-center gap-3 p-3 rounded-md bg-gray-900 text-white hover:bg-black transition-colors">
+                  <LogIn className="w-5 h-5" />
+                  <span className="text-sm font-medium">Sign In</span>
+                </button>
+              )}
             </div>
           </aside>
 
@@ -286,14 +325,14 @@ function AppContent() {
       <Route path="/settings/*" element={
         <SettingsLayout onClose={() => navigate('/')}>
           <Routes>
-            <Route path="account" element={<AccountSettings />} />
-            <Route path="subscription" element={<SubscriptionSettings />} />
-            <Route path="integrations" element={<IntegrationsSettings diagnostics={diagnostics} copyToClipboard={(text, id) => { navigator.clipboard.writeText(text); }} copied={null} />} />
-            <Route path="notifications" element={<NotificationsSettings emailNotif={true} setEmailNotif={() => {}} pushNotif={false} setPushNotif={() => {}} />} />
-            <Route path="security" element={<SecuritySettings />} />
-            <Route path="team" element={<TeamSettings />} />
-            <Route path="preferences" element={<PreferencesSettings darkMode={false} setDarkMode={() => {}} clearHistory={clearHistory} />} />
-            <Route path="diagnostics" element={<DiagnosticsSettings diagnostics={diagnostics} checkDiagnostics={checkDiagnostics} />} />
+            <Route path="account" element={<AccountSettings user={user} />} />
+            <Route path="subscription" element={<SubscriptionSettings user={user} />} />
+            <Route path="integrations" element={<IntegrationsSettings user={user} diagnostics={diagnostics} copyToClipboard={copyToClipboard} copied={copied} />} />
+            <Route path="notifications" element={<NotificationsSettings user={user} />} />
+            <Route path="security" element={<SecuritySettings user={user} />} />
+            <Route path="team" element={<TeamSettings user={user} />} />
+            <Route path="preferences" element={<PreferencesSettings user={user} clearHistory={clearHistory} />} />
+            <Route path="diagnostics" element={<DiagnosticsSettings user={user} diagnostics={diagnostics} checkDiagnostics={checkDiagnostics} />} />
           </Routes>
         </SettingsLayout>
       } />

@@ -1,0 +1,89 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - name: string (required)
+//   - email: string (required, email format)
+//   - avatar: string (optional)
+//   - role: string (enum: Owner, Admin, Member)
+//   - preferences: map (optional)
+//
+// Collection: team
+// Document ID: {memberId}
+// Fields:
+//   - name: string (required)
+//   - email: string (required, email format)
+//   - role: string (enum: Owner, Admin, Member)
+//   - status: string (enum: Active, Pending)
+//   - avatar: string (optional)
+//
+// Collection: subscriptions
+// Document ID: {userId}
+// Fields:
+//   - planName: string
+//   - price: string
+//   - nextRenewal: timestamp
+//   - usage: number
+//
+// Collection: tasks
+// Document ID: {taskId}
+// Fields:
+//   - goal: string
+//   - status: string
+//   - current_agent: string
+//   - uid: string (required for ownership)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && 
+        request.resource.data.email == request.auth.token.email &&
+        isValidEmail(request.resource.data.email);
+    }
+    
+    // Team Members
+    match /team/{memberId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated(); // For demo purposes, allowing all auth users to manage team
+    }
+    
+    // Subscriptions
+    match /subscriptions/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+    
+    // Tasks
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+  }
+}

@@ -1,5 +1,7 @@
-import React from 'react';
-import { Shield, Lock, Smartphone, Eye, EyeOff, ChevronRight, Key, History } from 'lucide-react';
+import React, { useState } from 'react';
+import { Shield, Lock, Smartphone, Eye, EyeOff, ChevronRight, Key, History, CheckCircle2 } from 'lucide-react';
+import { User as FirebaseUser, auth } from '../../firebase';
+import { updatePassword } from 'firebase/auth';
 
 const Toggle = ({ enabled, onChange }) => (
   <button
@@ -10,7 +12,37 @@ const Toggle = ({ enabled, onChange }) => (
   </button>
 );
 
-export default function SecuritySettings() {
+export default function SecuritySettings({ user }: { user: FirebaseUser | null }) {
+  const [newPassword, setNewPassword] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleUpdatePassword = async () => {
+    if (!user || !newPassword) return;
+    setIsUpdating(true);
+    setError('');
+    try {
+      await updatePassword(user, newPassword);
+      setShowSuccess(true);
+      setNewPassword('');
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update password. You may need to re-authenticate.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
+        <Shield className="w-16 h-16 mb-4 opacity-10" />
+        <p className="text-lg font-medium">Please sign in to view security settings.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-1">
@@ -45,24 +77,30 @@ export default function SecuritySettings() {
           
           <div className="grid grid-cols-1 gap-6 max-w-md">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Current Password</label>
-              <div className="relative group">
-                <input type="password" placeholder="••••••••" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 focus:bg-white transition-all font-medium text-sm" />
-                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-900 transition-colors">
-                  <Eye className="w-4.5 h-4.5" />
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
               <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">New Password</label>
               <div className="relative group">
-                <input type="password" placeholder="••••••••" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 focus:bg-white transition-all font-medium text-sm" />
-                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-900 transition-colors">
-                  <Eye className="w-4.5 h-4.5" />
-                </button>
+                <input 
+                  type="password" 
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••" 
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:border-gray-900 focus:bg-white transition-all font-medium text-sm" 
+                />
               </div>
             </div>
-            <button className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-[0.98] text-sm">Update Password</button>
+            {error && <p className="text-xs text-red-600 font-medium ml-1">{error}</p>}
+            {showSuccess && (
+              <div className="flex items-center gap-2 text-green-600 text-sm font-bold ml-1 animate-fade-in">
+                <CheckCircle2 className="w-4 h-4" /> Password updated successfully!
+              </div>
+            )}
+            <button 
+              onClick={handleUpdatePassword}
+              disabled={isUpdating || !newPassword}
+              className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-[0.98] text-sm disabled:opacity-50"
+            >
+              {isUpdating ? 'Updating...' : 'Update Password'}
+            </button>
           </div>
         </div>
 
