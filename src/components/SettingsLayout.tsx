@@ -8,11 +8,9 @@ export default function SettingsLayout({ children, onClose }) {
 
   const tabs = [
     { id: 'account', label: 'Account', icon: User, path: '/settings/account' },
-    { id: 'subscription', label: 'Subscription', icon: CreditCard, path: '/settings/subscription' },
     { id: 'integrations', label: 'Integrations', icon: Key, path: '/settings/integrations' },
     { id: 'notifications', label: 'Notifications', icon: Bell, path: '/settings/notifications' },
     { id: 'security', label: 'Security', icon: Shield, path: '/settings/security' },
-    { id: 'team', label: 'Team', icon: Users, path: '/settings/team' },
     { id: 'preferences', label: 'Preferences', icon: SettingsIcon, path: '/settings/preferences' },
     { id: 'diagnostics', label: 'Diagnostics', icon: Activity, path: '/settings/diagnostics' },
   ];
@@ -33,19 +31,19 @@ export default function SettingsLayout({ children, onClose }) {
 
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
           <div>
-            <h3 className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">General</h3>
-            <nav className="space-y-1">
-              {tabs.slice(0, 4).map((tab) => (
+            <h3 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">General</h3>
+            <nav className="space-y-0.5">
+              {tabs.slice(0, 3).map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => navigate(tab.path)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     location.pathname === tab.path 
-                      ? 'bg-gray-900 text-white shadow-lg shadow-gray-200' 
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                      ? 'bg-gray-100 text-gray-900' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
-                  <tab.icon className={`w-4 h-4 ${location.pathname === tab.path ? 'text-white' : 'text-gray-400'}`} />
+                  <tab.icon className={`w-4 h-4 ${location.pathname === tab.path ? 'text-gray-900' : 'text-gray-400'}`} />
                   {tab.label}
                 </button>
               ))}
@@ -53,19 +51,19 @@ export default function SettingsLayout({ children, onClose }) {
           </div>
 
           <div>
-            <h3 className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">System</h3>
-            <nav className="space-y-1">
-              {tabs.slice(4).map((tab) => (
+            <h3 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">System</h3>
+            <nav className="space-y-0.5">
+              {tabs.slice(3).map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => navigate(tab.path)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     location.pathname === tab.path 
-                      ? 'bg-gray-900 text-white shadow-lg shadow-gray-200' 
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                      ? 'bg-gray-100 text-gray-900' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
-                  <tab.icon className={`w-4 h-4 ${location.pathname === tab.path ? 'text-white' : 'text-gray-400'}`} />
+                  <tab.icon className={`w-4 h-4 ${location.pathname === tab.path ? 'text-gray-900' : 'text-gray-400'}`} />
                   {tab.label}
                 </button>
               ))}
@@ -73,11 +71,11 @@ export default function SettingsLayout({ children, onClose }) {
           </div>
         </div>
 
-        <div className="p-6 border-t border-gray-100">
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 text-red-500 hover:bg-red-50 rounded-xl text-sm font-bold transition-all duration-200 group">
-            <LogOut className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-            Sign Out
-          </button>
+        <div className="p-4 border-t border-gray-100">
+          <div className="w-full flex items-center gap-2 px-3 py-2 text-gray-500 bg-gray-50 rounded-lg text-xs font-medium border border-gray-100">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            Personal Edition
+          </div>
         </div>
       </aside>
 

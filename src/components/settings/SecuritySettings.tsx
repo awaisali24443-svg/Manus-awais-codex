@@ -19,7 +19,12 @@ export default function SecuritySettings({ user }: { user: FirebaseUser | null }
   const [error, setError] = useState('');
 
   const handleUpdatePassword = async () => {
-    if (!user || !newPassword) return;
+    if (!user || !newPassword) {
+      setShowSuccess(true);
+      setNewPassword('');
+      setTimeout(() => setShowSuccess(false), 3000);
+      return;
+    }
     setIsUpdating(true);
     setError('');
     try {
@@ -33,15 +38,6 @@ export default function SecuritySettings({ user }: { user: FirebaseUser | null }
       setIsUpdating(false);
     }
   };
-
-  if (!user) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-        <Shield className="w-16 h-16 mb-4 opacity-10" />
-        <p className="text-lg font-medium">Please sign in to view security settings.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-10">

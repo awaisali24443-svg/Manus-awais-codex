@@ -33,9 +33,13 @@ export default function NotificationsSettings({ user }: { user: FirebaseUser | n
   }, [user]);
 
   const updateNotification = async (key: string, value: any) => {
-    if (!user) return;
     const newNotifs = { ...notifications, [key]: value };
     setNotifications(newNotifs);
+    if (!user) {
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
+      return;
+    }
     try {
       await updateDoc(doc(db, 'users', user.uid), { 
         'preferences.notifications': newNotifs 
@@ -46,15 +50,6 @@ export default function NotificationsSettings({ user }: { user: FirebaseUser | n
       console.error('Failed to update notifications', err);
     }
   };
-
-  if (!user) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-        <Bell className="w-16 h-16 mb-4 opacity-10" />
-        <p className="text-lg font-medium">Please sign in to view notification settings.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-10">

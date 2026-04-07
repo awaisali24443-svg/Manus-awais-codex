@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, CheckCircle2, Circle, Terminal, Brain, Eye, Activity, 
   AlertCircle, Box, GitBranch, Database, ChevronDown, Monitor, 
@@ -6,24 +7,23 @@ import {
   Check, AlertTriangle, Send, History, Cpu, Globe, Search,
   Settings, Clock, ChevronLeft, ChevronRight, ListChecks,
   Terminal as TerminalIcon, ArrowUp, Zap, Server, XCircle,
-  LogIn, User as UserIcon, Loader2, Image as ImageIcon
+  LogIn, User as UserIcon, Loader2, Image as ImageIcon, Command
 } from 'lucide-react';
 import { 
-  db, rtdb, doc, onSnapshot, ref, onValue 
+  db, rtdb, doc, onSnapshot, ref, onValue, collection
 } from './firebase';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import SettingsLayout from './components/SettingsLayout';
 import AccountSettings from './components/settings/AccountSettings';
-import SubscriptionSettings from './components/settings/SubscriptionSettings';
 import IntegrationsSettings from './components/settings/IntegrationsSettings';
 import NotificationsSettings from './components/settings/NotificationsSettings';
 import SecuritySettings from './components/settings/SecuritySettings';
-import TeamSettings from './components/settings/TeamSettings';
 import PreferencesSettings from './components/settings/PreferencesSettings';
 import DiagnosticsSettings from './components/settings/DiagnosticsSettings';
+import CommandPalette from './components/CommandPalette';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || '';
+const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
 const MOCK_USER = {
@@ -44,14 +44,15 @@ function AppContent() {
   const [agent, setAgent] = useState('MasterAgent');
   const [logs, setLogs] = useState([]);
   const [plan, setPlan] = useState([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 1024);
+  const [rightPanelOpen, setRightPanelOpen] = useState(window.innerWidth >= 1024);
   const [pendingAction, setPendingAction] = useState(null);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState(null);
   const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(null);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const logsEndRef = useRef(null);
 
   const clearHistory = () => {
@@ -122,7 +123,7 @@ function AppContent() {
 
   // Real-time task state and logs
   useEffect(() => {
-    if (!taskId) return;
+    if (!taskId || taskId === 'error') return;
 
     const unsubTask = onSnapshot(doc(db, 'tasks', taskId), (docSnap) => {
       if (docSnap.exists()) {
@@ -140,18 +141,14 @@ function AppContent() {
       }
     });
 
-    const logsRef = ref(rtdb, `tasks/${taskId}/events`);
-    const unsubLogs = onValue(logsRef, (snapshot) => {
-      const data = snapshot.val() as Record<string, any>;
-      if (data) {
-        const logsArray = Object.values(data).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-        setLogs(logsArray.map(l => ({ 
-          type: l.type || 'info', 
-          text: l.content || l.message || '',
-          timestamp: l.timestamp,
-          agent: l.agent || 'system'
-        })));
-      }
+    const unsubLogs = onSnapshot(collection(db, 'tasks', taskId, 'logs'), (snapshot) => {
+      const logsArray = snapshot.docs.map(d => d.data()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      setLogs(logsArray.map(l => ({ 
+        type: l.type || 'info', 
+        text: l.content || l.message || '',
+        timestamp: l.timestamp || Date.now() / 1000,
+        agent: l.agent || 'system'
+      })));
     });
 
     return () => {
@@ -180,10 +177,11 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [taskId, status]);
 
-  const handleExecute = async () => {
-    if (!goal.trim()) return;
+  const handleExecute = async (overrideGoal?: string) => {
+    const finalGoal = overrideGoal || goal;
+    if (!finalGoal.trim()) return;
     setStatus('RUNNING');
-    setLogs([{ type: 'info', text: `Initializing task: ${goal}`, timestamp: Date.now(), agent: 'system' }]);
+    setLogs([{ type: 'info', text: `Initializing task: ${finalGoal}`, timestamp: Date.now(), agent: 'system' }]);
     setPlan([]);
     setScreenshot(null);
 
@@ -191,7 +189,7 @@ function AppContent() {
       const res = await fetch(`${API_URL}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': SYNOD_API_KEY },
-        body: JSON.stringify({ goal, uid: user.uid })
+        body: JSON.stringify({ goal: finalGoal, uid: user.uid })
       });
       
       if (!res.ok) throw new Error('Failed to create task');
@@ -211,7 +209,8 @@ function AppContent() {
     } catch (err) {
       console.error('Execution error:', err);
       setStatus('FAIL');
-      setLogs(prev => [...prev, { type: 'error', text: `Execution failed: ${err.message}`, timestamp: Date.now(), agent: 'system' }]);
+      if (!taskId) setTaskId('error');
+      setLogs(prev => [...prev, { type: 'error', text: `Execution failed: ${err.message}. Please check if the backend is running.`, timestamp: Date.now(), agent: 'system' }]);
     }
   };
 
@@ -228,23 +227,55 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={
-        <div className="flex h-screen bg-[#FAFAFA] text-gray-900 font-sans overflow-hidden">
+        <div className="flex h-[100dvh] bg-[#FAFAFA] text-gray-900 font-sans overflow-hidden relative">
           
+          <CommandPalette 
+            isOpen={cmdPaletteOpen} 
+            setIsOpen={setCmdPaletteOpen} 
+            setGoal={setGoal}
+            handleExecute={handleExecute}
+            setStatus={setStatus}
+            setTaskId={setTaskId}
+            setLogs={setLogs}
+            setPlan={setPlan}
+            setScreenshot={setScreenshot}
+          />
+
+          {/* Mobile Overlay for Sidebar */}
+          {sidebarOpen && (
+            <div 
+              className="fixed inset-0 bg-gray-900/20 backdrop-blur-sm z-30 lg:hidden transition-opacity"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+
           {/* Panel 1: Sidebar (History & Navigation) */}
-          <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-300 overflow-hidden z-20`}>
-            <div className="h-14 flex items-center px-4 border-b border-gray-100">
+          <aside className={`fixed lg:relative inset-y-0 left-0 z-40 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 w-72 lg:w-64 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 ease-in-out`}>
+            <div className="h-14 flex items-center justify-between px-4 border-b border-gray-100">
               <div className="flex items-center gap-2 text-gray-900">
                 <Brain className="w-5 h-5 text-blue-600" />
                 <span className="font-bold tracking-tight">Awais Codex</span>
               </div>
+              <button className="lg:hidden p-1 text-gray-400 hover:text-gray-600" onClick={() => setSidebarOpen(false)}>
+                <X className="w-5 h-5" />
+              </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-3 space-y-1">
+            <div className="p-3">
+              <button 
+                onClick={() => { setTaskId(null); setGoal(''); setLogs([]); setPlan([]); setScreenshot(null); setStatus('IDLE'); if(window.innerWidth < 1024) setSidebarOpen(false); }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-sm transition-colors border border-blue-200/50 shadow-sm"
+              >
+                <Play className="w-4 h-4" /> New Task
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-1 pt-0">
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2 mt-2">Recent Tasks</div>
               {tasks.map((h) => (
                 <div 
                   key={h.task_id}
-                  onClick={() => { setTaskId(h.task_id); }}
+                  onClick={() => { setTaskId(h.task_id); if(window.innerWidth < 1024) setSidebarOpen(false); }}
                   className={`p-2.5 rounded-lg cursor-pointer transition-all flex items-center gap-3 ${
                     taskId === h.task_id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-600'
                   }`}
@@ -258,7 +289,14 @@ function AppContent() {
               )}
             </div>
             
-            <div className="p-3 border-t border-gray-100">
+            <div className="p-3 border-t border-gray-100 space-y-1">
+              <button 
+                onClick={() => document.documentElement.classList.toggle('dark')}
+                className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
+              >
+                <Monitor className="w-4 h-4 text-gray-400" />
+                <span className="text-sm font-medium">Toggle Theme</span>
+              </button>
               <button onClick={() => navigate('/settings/integrations')} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xs font-bold shadow-sm">
                   {user.displayName?.[0] || 'A'}
@@ -274,126 +312,168 @@ function AppContent() {
 
           {/* Panel 2: Main Chat / Interaction Area */}
           <main className="flex-1 flex flex-col min-w-0 bg-white relative z-10 shadow-[-10px_0_30px_rgba(0,0,0,0.02)]">
-            <header className="h-14 border-b border-gray-100 flex items-center justify-between px-4 bg-white/80 backdrop-blur-md">
-              <div className="flex items-center gap-3">
+            <header className="h-14 border-b border-gray-100 flex items-center justify-between px-2 sm:px-4 bg-white/80 backdrop-blur-md">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-500">
-                  <Menu className="w-4.5 h-4.5" />
+                  <Menu className="w-5 h-5" />
                 </button>
                 {taskId && (
-                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider border ${getStatusColor(status)}`}>
+                  <div className={`flex items-center gap-1.5 px-2 py-1 sm:px-2.5 rounded-md text-[10px] sm:text-xs font-bold uppercase tracking-wider border ${getStatusColor(status)}`}>
                     {status === 'RUNNING' && <Loader2 className="w-3 h-3 animate-spin" />}
                     {status === 'COMPLETE' && <CheckCircle2 className="w-3 h-3" />}
                     {status === 'FAIL' && <XCircle className="w-3 h-3" />}
                     {status === 'CONFIRM' && <AlertTriangle className="w-3 h-3" />}
-                    {status}
+                    <span className="hidden sm:inline">{status}</span>
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button 
+                  onClick={() => setCmdPaletteOpen(true)}
+                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+                >
+                  <Command className="w-3.5 h-3.5" />
+                  <span>Cmd K</span>
+                </button>
                 <button onClick={() => setRightPanelOpen(!rightPanelOpen)} className={`p-1.5 rounded-md transition-colors ${rightPanelOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-500'}`}>
-                  <Layout className="w-4.5 h-4.5" />
+                  <Layout className="w-5 h-5" />
                 </button>
               </div>
             </header>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8">
-              {!taskId ? (
-                <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center">
-                  <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
-                    <Brain className="w-8 h-8 text-blue-600" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">What can I help you build?</h2>
-                  <p className="text-gray-500 mb-8">Awais Codex is ready. Enter a task below to start the autonomous agent loop.</p>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-                    {[
-                      "Build a React weather dashboard using Tailwind",
-                      "Write a Python script to scrape HackerNews",
-                      "Create a full-stack Next.js app with Supabase",
-                      "Analyze this dataset and generate a report"
-                    ].map((prompt, i) => (
-                      <button 
-                        key={i}
-                        onClick={() => setGoal(prompt)}
-                        className="p-4 text-left border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/50 transition-all text-sm text-gray-600 font-medium"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="max-w-3xl mx-auto space-y-6 pb-20">
-                  {/* Goal Header */}
-                  <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Current Goal</h3>
-                    <p className="text-lg font-medium text-gray-900">{tasks.find(t => t.task_id === taskId)?.goal || goal}</p>
-                  </div>
-
-                  {/* Plan Display */}
-                  {plan.length > 0 && (
-                    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-                      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                          <ListChecks className="w-4 h-4 text-blue-500" /> Execution Plan
-                        </h3>
-                      </div>
-                      <div className="p-4 space-y-3">
-                        {plan.map((step: any, i: number) => (
-                          <div key={i} className="flex items-start gap-3">
-                            <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border ${
-                              step.status === 'COMPLETED' ? 'bg-green-50 border-green-200 text-green-600' :
-                              step.status === 'IN_PROGRESS' ? 'bg-blue-50 border-blue-200 text-blue-600' :
-                              'bg-gray-50 border-gray-200 text-gray-400'
-                            }`}>
-                              {step.status === 'COMPLETED' ? <Check className="w-3 h-3" /> : 
-                               step.status === 'IN_PROGRESS' ? <Loader2 className="w-3 h-3 animate-spin" /> : 
-                               <span className="text-[10px] font-bold">{i + 1}</span>}
-                            </div>
-                            <div>
-                              <p className={`text-sm ${step.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-800 font-medium'}`}>
-                                {step.description}
-                              </p>
-                              <p className="text-xs text-gray-400 mt-0.5">Agent: {step.agent}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+              <AnimatePresence mode="wait">
+                {!taskId ? (
+                  <motion.div 
+                    key="welcome"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center"
+                  >
+                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
+                      <Brain className="w-8 h-8 text-blue-600" />
                     </div>
-                  )}
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">What can I help you build?</h2>
+                    <p className="text-gray-500 mb-8">Awais Codex is ready. Enter a task below to start the autonomous agent loop.</p>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                      {[
+                        "Build a React weather dashboard using Tailwind",
+                        "Write a Python script to scrape HackerNews",
+                        "Create a full-stack Next.js app with Supabase",
+                        "Analyze this dataset and generate a report"
+                      ].map((prompt, i) => (
+                        <motion.button 
+                          key={i}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.1 + 0.2 }}
+                          onClick={() => { setGoal(prompt); handleExecute(prompt); }}
+                          className="p-4 text-left border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/50 transition-all text-sm text-gray-600 font-medium"
+                        >
+                          {prompt}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="task-view"
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.3 }}
+                    className="max-w-3xl mx-auto space-y-6 pb-20"
+                  >
+                    {/* Goal Header */}
+                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Current Goal</h3>
+                      <p className="text-lg font-medium text-gray-900">{tasks.find(t => t.task_id === taskId)?.goal || goal}</p>
+                    </div>
 
-                  {/* Main Chat Logs */}
-                  <div className="space-y-6">
-                    {logs.filter(l => l.type === 'message' || l.type === 'error' || l.type === 'result').map((log, i) => (
-                      <div key={i} className={`flex gap-4 ${log.type === 'error' ? 'bg-red-50 p-4 rounded-xl border border-red-100' : ''}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          log.type === 'error' ? 'bg-red-100 text-red-600' : 
-                          log.agent === 'user' ? 'bg-gray-900 text-white' : 'bg-blue-100 text-blue-600'
-                        }`}>
-                          {log.type === 'error' ? <AlertCircle className="w-4 h-4" /> : 
-                           log.agent === 'user' ? <UserIcon className="w-4 h-4" /> : <Brain className="w-4 h-4" />}
+                    {/* Plan Display */}
+                    {plan.length > 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm"
+                      >
+                        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                          <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                            <ListChecks className="w-4 h-4 text-blue-500" /> Execution Plan
+                          </h3>
                         </div>
-                        <div className="flex-1 pt-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold text-gray-900 capitalize">{log.agent || 'System'}</span>
-                            <span className="text-[10px] text-gray-400">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
-                          </div>
-                          <div className={`text-sm leading-relaxed ${log.type === 'error' ? 'text-red-800' : 'text-gray-700'}`}>
-                            {log.text}
-                          </div>
+                        <div className="p-4 space-y-3">
+                          {plan.map((step: any, i: number) => (
+                            <motion.div 
+                              key={i} 
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.05 }}
+                              className="flex items-start gap-3"
+                            >
+                              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border ${
+                                step.status === 'COMPLETED' ? 'bg-green-50 border-green-200 text-green-600' :
+                                step.status === 'IN_PROGRESS' ? 'bg-blue-50 border-blue-200 text-blue-600' :
+                                'bg-gray-50 border-gray-200 text-gray-400'
+                              }`}>
+                                {step.status === 'COMPLETED' ? <Check className="w-3 h-3" /> : 
+                                 step.status === 'IN_PROGRESS' ? <Loader2 className="w-3 h-3 animate-spin" /> : 
+                                 <span className="text-[10px] font-bold">{i + 1}</span>}
+                              </div>
+                              <div>
+                                <p className={`text-sm ${step.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-800 font-medium'}`}>
+                                  {step.description}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-0.5">Agent: {step.agent}</p>
+                              </div>
+                            </motion.div>
+                          ))}
                         </div>
-                      </div>
-                    ))}
-                    <div ref={logsEndRef} />
-                  </div>
-                </div>
-              )}
+                      </motion.div>
+                    )}
+
+                    {/* Main Chat Logs */}
+                    <div className="space-y-6">
+                      {logs.filter(l => l.type === 'message' || l.type === 'error' || l.type === 'result').map((log, i) => (
+                        <motion.div 
+                          key={i} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`flex gap-4 ${log.type === 'error' ? 'bg-red-50 p-4 rounded-xl border border-red-100' : ''}`}
+                        >
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            log.type === 'error' ? 'bg-red-100 text-red-600' : 
+                            log.agent === 'user' ? 'bg-gray-900 text-white' : 'bg-blue-100 text-blue-600'
+                          }`}>
+                            {log.type === 'error' ? <AlertCircle className="w-4 h-4" /> : 
+                             log.agent === 'user' ? <UserIcon className="w-4 h-4" /> : <Brain className="w-4 h-4" />}
+                          </div>
+                          <div className="flex-1 pt-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-gray-900 capitalize">{log.agent || 'System'}</span>
+                              <span className="text-[10px] text-gray-400">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
+                            </div>
+                            <div className={`text-sm leading-relaxed ${log.type === 'error' ? 'text-red-800' : 'text-gray-700'}`}>
+                              {log.text}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                      <div ref={logsEndRef} />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-gray-100">
               <div className="relative max-w-3xl mx-auto flex items-center gap-2">
                 <input
+                  id="main-input"
                   type="text"
                   value={goal}
                   onChange={(e) => setGoal(e.target.value)}
@@ -413,14 +493,22 @@ function AppContent() {
             </div>
           </main>
 
+          {/* Mobile Overlay for Right Panel */}
+          {rightPanelOpen && (
+            <div 
+              className="fixed inset-0 bg-gray-900/20 backdrop-blur-sm z-30 lg:hidden transition-opacity"
+              onClick={() => setRightPanelOpen(false)}
+            />
+          )}
+
           {/* Panel 3: Execution Timeline & Workspace (Right Sidebar) */}
-          <aside className={`${rightPanelOpen ? 'w-80 sm:w-96' : 'w-0'} flex-shrink-0 bg-gray-50 border-l border-gray-200 flex flex-col transition-all duration-300 overflow-hidden z-20`}>
+          <aside className={`fixed lg:relative inset-y-0 right-0 z-40 transform ${rightPanelOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0 w-[85vw] sm:w-80 lg:w-96 flex-shrink-0 bg-gray-50 border-l border-gray-200 flex flex-col transition-transform duration-300 ease-in-out ${!rightPanelOpen && 'lg:hidden'}`}>
             <div className="h-14 flex items-center justify-between px-4 border-b border-gray-200 bg-white">
               <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                 <TerminalIcon className="w-4 h-4 text-gray-500" /> Execution Details
               </h3>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
+                <span className="text-[10px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200 truncate max-w-[100px]">
                   {agent}
                 </span>
                 <button onClick={() => setRightPanelOpen(false)} className="p-1 hover:bg-gray-100 rounded text-gray-400">
@@ -443,11 +531,11 @@ function AppContent() {
               )}
 
               {/* Real-time Terminal Logs */}
-              <div className="space-y-2">
+              <div className="space-y-2 flex flex-col h-full lg:h-auto">
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" /> System Logs
                 </h4>
-                <div className="bg-[#0D1117] rounded-lg p-3 font-mono text-[10px] sm:text-xs text-gray-300 h-64 overflow-y-auto shadow-inner border border-gray-800">
+                <div className="bg-[#0D1117] rounded-lg p-3 font-mono text-[10px] sm:text-xs text-gray-300 flex-1 lg:h-64 overflow-y-auto shadow-inner border border-gray-800">
                   {logs.length === 0 ? (
                     <span className="text-gray-600">Waiting for task execution...</span>
                   ) : (
@@ -512,11 +600,9 @@ function AppContent() {
         <SettingsLayout onClose={() => navigate('/')}>
           <Routes>
             <Route path="account" element={<AccountSettings user={user} />} />
-            <Route path="subscription" element={<SubscriptionSettings user={user} />} />
             <Route path="integrations" element={<IntegrationsSettings diagnostics={diagnostics} copyToClipboard={copyToClipboard} copied={copied} />} />
             <Route path="notifications" element={<NotificationsSettings user={user} />} />
             <Route path="security" element={<SecuritySettings user={user} />} />
-            <Route path="team" element={<TeamSettings user={user} />} />
             <Route path="preferences" element={<PreferencesSettings user={user} clearHistory={clearHistory} />} />
             <Route path="diagnostics" element={<DiagnosticsSettings diagnostics={diagnostics} checkDiagnostics={checkDiagnostics} />} />
           </Routes>

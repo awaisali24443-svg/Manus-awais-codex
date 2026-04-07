@@ -37,6 +37,16 @@ body {
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: filter 0.3s ease, background-color 0.3s ease;
+}
+
+html.dark {
+  filter: invert(1) hue-rotate(180deg);
+  background: #111;
+}
+
+html.dark img, html.dark video {
+  filter: invert(1) hue-rotate(180deg);
 }
 
 h1, h2, h3, h4, h5, h6 {

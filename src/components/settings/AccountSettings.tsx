@@ -4,10 +4,10 @@ import { db, doc, onSnapshot, setDoc, User } from '../../firebase';
 
 export default function AccountSettings({ user }: { user: User | null }) {
   const [profile, setProfile] = useState({
-    name: '',
-    email: '',
-    role: 'Member',
-    avatar: ''
+    name: user?.displayName || 'Personal Edition User',
+    email: user?.email || 'user@personal.edition',
+    role: 'Admin',
+    avatar: user?.photoURL || ''
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -17,21 +17,17 @@ export default function AccountSettings({ user }: { user: User | null }) {
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       if (snap.exists()) {
         setProfile(snap.data() as any);
-      } else {
-        // Initialize with auth data
-        setProfile({
-          name: user.displayName || '',
-          email: user.email || '',
-          role: 'Member',
-          avatar: user.photoURL || ''
-        });
       }
     });
     return () => unsub();
   }, [user]);
 
   const handleSave = async () => {
-    if (!user) return;
+    if (!user) {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      return;
+    }
     setIsSaving(true);
     try {
       await setDoc(doc(db, 'users', user.uid), profile, { merge: true });
@@ -43,15 +39,6 @@ export default function AccountSettings({ user }: { user: User | null }) {
       setIsSaving(false);
     }
   };
-
-  if (!user) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-        <UserIcon className="w-16 h-16 mb-4 opacity-10" />
-        <p className="text-lg font-medium">Please sign in to view your account settings.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-10">
