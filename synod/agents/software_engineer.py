@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class SoftwareEngineer:
     def __init__(self) -> None:
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.model = "claude-sonnet-4-6"
+        # Updated to April 2026 flagship model
+        self.model = "claude-4-6-sonnet"
         self.api_url = "https://api.anthropic.com/v1/messages"
         self.timeout = 30.0
         

@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 class LogicAgent:
     def __init__(self) -> None:
         self.api_key = os.getenv("GROQ_API_KEY")
-        self.model = "deepseek-r1-distill-llama-70b"
+        # Updated to April 2026 Llama 4 405B
+        self.model = "llama-4-405b-preview"
         self.api_url = "https://api.groq.com/openai/v1/chat/completions"
         self.timeout = 30.0
 

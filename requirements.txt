@@ -6,6 +6,8 @@ anthropic
 requests
 python-dotenv
 firebase-admin>=6.0.0
+google-cloud-firestore
+google-auth
 httpx>=0.25.0
 supabase>=2.0.0
 e2b-code-interpreter>=1.0.0

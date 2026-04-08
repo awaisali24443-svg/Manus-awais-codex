@@ -22,7 +22,7 @@ import PreferencesSettings from './components/settings/PreferencesSettings';
 import DiagnosticsSettings from './components/settings/DiagnosticsSettings';
 import CommandPalette from './components/CommandPalette';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('onrender.com')) ? import.meta.env.VITE_API_URL : '';
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
@@ -53,6 +53,7 @@ function AppContent() {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const logsEndRef = useRef(null);
 
   const clearHistory = () => {
@@ -95,6 +96,18 @@ function AppContent() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const getLogColor = (type: string) => {
+    switch(type) {
+      case 'error': return 'text-red-600';
+      case 'thought': return 'text-purple-600';
+      case 'tool': return 'text-blue-600';
+      case 'observation': return 'text-green-600';
+      case 'replan': return 'text-amber-600';
+      case 'infrastructure': return 'text-gray-500 italic';
+      default: return 'text-gray-700';
+    }
+  };
+
   // Fetch task history
   useEffect(() => {
     const fetchTasks = async () => {
@@ -111,8 +124,28 @@ function AppContent() {
     fetchTasks();
   }, [user.uid]);
 
-  // Initial diagnostics check
+  // Initial diagnostics and health check
   useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/health`, {
+          headers: { 'X-API-Key': SYNOD_API_KEY }
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Backend health check failed with status ${res.status}: ${text}`);
+        }
+        const data = await res.json();
+        console.log('Backend health:', data);
+        if (!data.components_ready) {
+          setError('Backend is running but core components failed to initialize. Check server logs.');
+        }
+      } catch (err) {
+        console.error('Backend unreachable:', err);
+        setError(`Backend is unreachable: ${err instanceof Error ? err.message : String(err)}. Please ensure the server is running on port 8000.`);
+      }
+    };
+    checkHealth();
     checkDiagnostics();
   }, []);
 
@@ -141,14 +174,27 @@ function AppContent() {
       }
     });
 
-    const unsubLogs = onSnapshot(collection(db, 'tasks', taskId, 'logs'), (snapshot) => {
-      const logsArray = snapshot.docs.map(d => d.data()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      setLogs(logsArray.map(l => ({ 
-        type: l.type || 'info', 
-        text: l.content || l.message || '',
-        timestamp: l.timestamp || Date.now() / 1000,
-        agent: l.agent || 'system'
-      })));
+    const logsRef = ref(rtdb, `tasks/${taskId}/events`);
+    const unsubLogs = onValue(logsRef, (snapshot) => {
+      const data = snapshot.val() as Record<string, any>;
+      if (data) {
+        const logsArray = Object.values(data)
+          .sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0));
+        setLogs(logsArray.map((l: any) => ({
+          type: l.type || 'info',
+          text: l.content || l.message || '',
+          timestamp: l.timestamp || Date.now() / 1000,
+          agent: l.agent || 'system'
+        })));
+        
+        // Detect preview URL from logs
+        logsArray.forEach((l: any) => {
+          if (l.content && l.content.includes('live at:')) {
+            const match = l.content.match(/https?:\/\/[^\s]+/);
+            if (match) setPreviewUrl(match[0]);
+          }
+        });
+      }
     });
 
     return () => {
@@ -192,7 +238,10 @@ function AppContent() {
         body: JSON.stringify({ goal: finalGoal, uid: user.uid })
       });
       
-      if (!res.ok) throw new Error('Failed to create task');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || 'Failed to create task');
+      }
       
       const data = await res.json();
       setTaskId(data.task_id);
@@ -210,7 +259,13 @@ function AppContent() {
       console.error('Execution error:', err);
       setStatus('FAIL');
       if (!taskId) setTaskId('error');
-      setLogs(prev => [...prev, { type: 'error', text: `Execution failed: ${err.message}. Please check if the backend is running.`, timestamp: Date.now(), agent: 'system' }]);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setLogs(prev => [...prev, { 
+        type: 'error', 
+        text: `Execution failed: ${errorMsg}. (Check if the backend is running and reachable at ${API_URL || '/api'})`, 
+        timestamp: Date.now(), 
+        agent: 'system' 
+      }]);
     }
   };
 
@@ -437,7 +492,7 @@ function AppContent() {
 
                     {/* Main Chat Logs */}
                     <div className="space-y-6">
-                      {logs.filter(l => l.type === 'message' || l.type === 'error' || l.type === 'result').map((log, i) => (
+                      {logs.filter(l => ['log', 'thought', 'observation', 'tool', 'error', 'replan', 'infrastructure'].includes(l.type) || !l.type).map((log, i) => (
                         <motion.div 
                           key={i} 
                           initial={{ opacity: 0, y: 10 }}
@@ -455,8 +510,18 @@ function AppContent() {
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-xs font-bold text-gray-900 capitalize">{log.agent || 'System'}</span>
                               <span className="text-[10px] text-gray-400">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
+                              {log.type && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-tighter ${
+                                  log.type === 'error' ? 'bg-red-100 text-red-700' :
+                                  log.type === 'thought' ? 'bg-purple-100 text-purple-700' :
+                                  log.type === 'tool' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {log.type}
+                                </span>
+                              )}
                             </div>
-                            <div className={`text-sm leading-relaxed ${log.type === 'error' ? 'text-red-800' : 'text-gray-700'}`}>
+                            <div className={`text-sm leading-relaxed ${getLogColor(log.type)}`}>
                               {log.text}
                             </div>
                           </div>
@@ -568,7 +633,7 @@ function AppContent() {
                 
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mb-6 font-mono text-xs text-gray-700 overflow-x-auto">
                   <span className="font-bold text-gray-900">Tool:</span> {pendingAction.name}<br/>
-                  <span className="font-bold text-gray-900">Args:</span> {JSON.stringify(pendingAction.args, null, 2)}
+                  <span className="font-bold text-gray-900">Args:</span> {JSON.stringify(pendingAction.params || pendingAction.args, null, 2)}
                 </div>
                 
                 <div className="flex gap-3">

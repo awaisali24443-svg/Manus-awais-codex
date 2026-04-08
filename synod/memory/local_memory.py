@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 class LocalMemory:
     def __init__(self, db_path: str = "workspace/synod_memory.db"):
@@ -52,6 +52,17 @@ class LocalMemory:
             cursor = conn.execute("SELECT value FROM user_preferences WHERE key = ?", (key,))
             row = cursor.fetchone()
             return json.loads(row[0]) if row else None
+
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT task_id, goal, status, timestamp FROM task_history WHERE task_id = ?",
+                (task_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {"task_id": row[0], "goal": row[1], "status": row[2], "timestamp": row[3]}
+            return None
 
     def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:

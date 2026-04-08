@@ -12,13 +12,54 @@ logger = logging.getLogger(__name__)
 class MasterAgent:
     def __init__(self) -> None:
         self.api_key = os.getenv("GROQ_API_KEY")
-        self.model = "openai/gpt-oss-120b"
-        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.timeout = 30.0
+        self.gemini_key = os.getenv("GEMINI_API_KEY")
+        # Updated to April 2026 flagship models: Gemini 4 Ultra or Llama 4 405B
+        self.model = "gemini-4-ultra" if self.gemini_key else "llama-4-405b-preview"
+        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models" if self.gemini_key else "https://api.groq.com/openai/v1/chat/completions"
+        self.timeout = 60.0
         self.global_memory = GlobalMemory()
 
     async def _call_api(self, messages: List[Dict[str, str]], response_format: str = "text") -> str:
-        """Helper method to call the Groq API."""
+        """Helper method to call the AI API (Gemini or Groq)."""
+        if self.gemini_key:
+            return await self._call_gemini(messages, response_format)
+        return await self._call_groq(messages, response_format)
+
+    async def _call_gemini(self, messages: List[Dict[str, str]], response_format: str = "text") -> str:
+        headers = {"Content-Type": "application/json"}
+        # Convert OpenAI-style messages to Gemini-style
+        contents = []
+        system_instruction = ""
+        for m in messages:
+            if m["role"] == "system":
+                system_instruction = m["content"]
+            else:
+                contents.append({
+                    "role": "user" if m["role"] == "user" else "model",
+                    "parts": [{"text": m["content"]}]
+                })
+        
+        payload = {
+            "contents": contents,
+            "system_instruction": {"parts": [{"text": system_instruction}]} if system_instruction else None,
+            "generationConfig": {
+                "response_mime_type": "application/json" if response_format == "json_object" else "text/plain"
+            }
+        }
+        
+        url = f"{self.api_url}/{self.model}:generateContent?key={self.gemini_key}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                # Gemini response structure is different
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            logger.error(f"Gemini API call failed: {e}")
+            raise
+
+    async def _call_groq(self, messages: List[Dict[str, str]], response_format: str = "text") -> str:
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is not set.")
 

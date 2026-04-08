@@ -8,10 +8,10 @@ class DeepSeekAgent:
     and multi-step logical deduction.
     """
     def __init__(self):
-        # DeepSeek API via Groq (deepseek-r1-distill-llama-70b)
-        self.api_key = os.getenv("GROQ_API_KEY")
-        self.model = "deepseek-r1-distill-llama-70b"
-        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
+        # True DeepSeek API
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.model = "deepseek-reasoner"
+        self.api_url = "https://api.deepseek.com/chat/completions"
         self.timeout = 60.0  # longer for deep reasoning
         
     async def reason(self, problem: str, context: str) -> str:
@@ -20,7 +20,7 @@ class DeepSeekAgent:
         Includes chain-of-thought in the response.
         """
         if not self.api_key:
-            raise ValueError("GROQ_API_KEY not set for DeepSeek.")
+            raise ValueError("DEEPSEEK_API_KEY not set.")
         
         system_prompt = (
             "You are DeepSeek R1, a powerful reasoning model. "

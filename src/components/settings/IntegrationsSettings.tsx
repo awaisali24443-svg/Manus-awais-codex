@@ -114,6 +114,11 @@ export default function IntegrationsSettings({ diagnostics, copyToClipboard, cop
                   {saving === key ? <Check className="w-4 h-4" /> : 'Save'}
                 </button>
               </div>
+              <p className="text-[10px] text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 mt-2">
+                ⚠️ Keys are saved locally for reference only.
+                To activate on the backend, add them to your 
+                environment variables.
+              </p>
             </div>
           );
         })}

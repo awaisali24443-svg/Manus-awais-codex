@@ -41,12 +41,42 @@ body {
 }
 
 html.dark {
-  filter: invert(1) hue-rotate(180deg);
-  background: #111;
+  --manus-bg: #0F172A;
+  --manus-surface: #1E293B;
+  --manus-border: #334155;
+  --manus-accent: #38BDF8;
+  --manus-text-primary: #F8FAFC;
+  --manus-text-secondary: #94A3B8;
+  background: var(--manus-bg);
+  color: var(--manus-text-primary);
 }
 
-html.dark img, html.dark video {
-  filter: invert(1) hue-rotate(180deg);
+html.dark .glass-panel {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html.dark .glass-card {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+html.dark .command-bar {
+  background: #1E293B;
+  border-color: #334155;
+}
+
+html.dark .browser-header {
+  background: rgba(30, 41, 59, 0.5);
+}
+
+html.dark .browser-address-bar {
+  background: #0F172A;
+  border-color: #334155;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 h1, h2, h3, h4, h5, h6 {

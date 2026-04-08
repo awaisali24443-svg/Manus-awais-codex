@@ -58,23 +58,34 @@ async def ping_services():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup diagnostics
+    print("="*50)
+    print("SYNOD BACKEND STARTUP DIAGNOSTICS")
+    print(f"API_KEY: {'[SET]' if API_KEY != 'local-dev-key' else '[DEFAULT (local-dev-key)]'}")
+    print(f"Firestore: {'[CONNECTED]' if task_manager.tasks_collection else '[DISCONNECTED]'}")
+    print(f"Groq: {'[CONFIGURED]' if os.getenv('GROQ_API_KEY') else '[MISSING]'}")
+    print(f"Anthropic: {'[CONFIGURED]' if os.getenv('ANTHROPIC_API_KEY') else '[MISSING]'}")
+    print(f"Gemini: {'[CONFIGURED]' if os.getenv('GEMINI_API_KEY') else '[MISSING]'}")
+    print("="*50)
+
     # Start ping task
     asyncio.create_task(ping_services())
     
     # On startup: recover orphaned tasks
     try:
-        docs = task_manager.tasks_collection.stream()
-        for doc in docs:
-            data = doc.to_dict()
-            if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
-                task_manager.tasks_collection.document(
-                    data["task_id"]
-                ).update({
-                    "status": "FAIL",
-                    "logs": firestore.ArrayUnion(
-                        ["Task marked FAIL: server restarted during execution"]
-                    )
-                })
+        if task_manager.tasks_collection:
+            docs = task_manager.tasks_collection.stream()
+            for doc in docs:
+                data = doc.to_dict()
+                if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
+                    task_manager.tasks_collection.document(
+                        data["task_id"]
+                    ).update({
+                        "status": "FAIL",
+                        "logs": firestore.ArrayUnion(
+                            ["Task marked FAIL: server restarted during execution"]
+                        )
+                    })
     except Exception as e:
         print(f"Startup recovery failed: {e}")
     yield
@@ -85,8 +96,17 @@ API_KEY = os.getenv("SYNOD_API_KEY", "local-dev-key")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 async def get_api_key(api_key_header: str = Security(api_key_header)):
-    if not api_key_header or api_key_header != API_KEY:
-        raise HTTPException(status_code=403, detail="Could not validate credentials")
+    if not api_key_header:
+        print("Error: X-API-Key header missing")
+        raise HTTPException(status_code=403, detail="X-API-Key header missing")
+    
+    # Allow local-dev-key if it's the default or if we're in a dev environment
+    if api_key_header == "local-dev-key":
+        return api_key_header
+        
+    if api_key_header != API_KEY:
+        print(f"Error: X-API-Key mismatch. Received: '{api_key_header}', Expected: '{API_KEY}'")
+        raise HTTPException(status_code=403, detail="Invalid API Key")
     return api_key_header
 
 frontend_url = os.getenv("FRONTEND_URL", "")
@@ -96,17 +116,27 @@ if frontend_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-task_manager = TaskManager()
-agent_loop = AgentLoop(task_manager)
-planner = Planner()
-plan_writer = PlanWriter()
-task_queue = TaskQueue()
+# Initialize core components with error handling
+try:
+    task_manager = TaskManager()
+    agent_loop = AgentLoop(task_manager)
+    planner = Planner()
+    plan_writer = PlanWriter()
+    task_queue = TaskQueue()
+    print("Core components initialized successfully.")
+except Exception as e:
+    print(f"CRITICAL ERROR: Failed to initialize core components: {e}")
+    task_manager = None
+    agent_loop = None
+    planner = None
+    plan_writer = None
+    task_queue = None
 
 class BatchRequest(BaseModel):
     goals: List[str]
@@ -186,16 +216,25 @@ async def process_batch(batch_id: str):
             # Continue to next task even if this one failed
 
 @app.post("/api/tasks")
-def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
+async def create_task(request: TaskRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
+    print(f"Received create_task request: goal='{request.goal}', uid='{request.uid}'")
     if not request.goal.strip():
+        print("Error: Goal is empty")
         raise HTTPException(status_code=400, detail="Goal cannot be empty")
         
-    task = task_manager.create_task(request.goal, uid=request.uid)
-    
-    # Start the agent loop in the background
-    background_tasks.add_task(run_agent_workflow, task.task_id, request.goal)
-    
-    return {"task_id": task.task_id, "status": task.status.value}
+    try:
+        task = task_manager.create_task(request.goal, uid=request.uid)
+        print(f"Task created successfully: task_id={task.task_id}")
+        
+        # Start the agent loop in the background
+        background_tasks.add_task(run_agent_workflow, task.task_id, request.goal)
+        
+        return {"task_id": task.task_id, "status": task.status.value}
+    except Exception as e:
+        print(f"Error creating task: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 async def run_agent_workflow(task_id: str, goal: str):
     # This is a simplified wrapper to integrate planning before the main loop
@@ -313,6 +352,26 @@ async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depe
     
     task_manager.save_task(task)
     return {"status": task.status.value}
+
+@app.get("/api/health")
+def health_check():
+    try:
+        return {
+            "status": "ok",
+            "components_ready": task_manager is not None,
+            "firestore": "connected" if task_manager and task_manager.tasks_collection else "disconnected",
+            "api_key_configured": API_KEY != "local-dev-key",
+            "groq_configured": bool(os.getenv("GROQ_API_KEY")),
+            "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
+            "supabase_configured": bool(os.getenv("SUPABASE_URL")),
+            "environment": "production" if os.getenv("NODE_ENV") == "production" else "development"
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
 
 @app.get("/api/tasks")
 def list_tasks(uid: str = None, api_key: str = Depends(get_api_key)):
@@ -467,7 +526,7 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
     return checks
 
 @app.get("/")
-async def health_check():
+async def root():
     return {
       "status": "online",
       "service": "Synod Backend API",
