@@ -94,8 +94,8 @@ export default function DiagnosticsSettings({ diagnostics, checkDiagnostics }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         {[
           { label: 'APIs Configured', value: configuredCount, desc: 'Total env variables set' },
-          { label: 'APIs Verified', value: verifiedCount, desc: 'Successful connections' },
-          { label: 'API Errors', value: errorCount, desc: 'Failed connections' },
+          { label: 'APIs Verified',   value: verifiedCount, desc: 'Live connection confirmed' },
+          { label: 'API Errors',      value: errorCount,    desc: 'Failed to connect' },
         ].map((stat) => (
           <div key={stat.label} className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">{stat.label}</p>

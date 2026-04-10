@@ -22,7 +22,10 @@ import PreferencesSettings from './components/settings/PreferencesSettings';
 import DiagnosticsSettings from './components/settings/DiagnosticsSettings';
 import CommandPalette from './components/CommandPalette';
 
-const API_URL = (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('onrender.com')) ? import.meta.env.VITE_API_URL : '';
+// FIXED: Never strip the onrender.com URL.
+// The old code caused all fetch calls to go to '' (the frontend 
+// host) instead of the backend, producing "backend not reachable".
+const API_URL = import.meta.env.VITE_API_URL || '';
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
@@ -51,7 +54,7 @@ function AppContent() {
   const [diagnostics, setDiagnostics] = useState(null);
   const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const logsEndRef = useRef(null);
@@ -96,17 +99,18 @@ function AppContent() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const getLogColor = (type: string) => {
-    switch(type) {
-      case 'error': return 'text-red-600';
-      case 'thought': return 'text-purple-600';
-      case 'tool': return 'text-blue-600';
-      case 'observation': return 'text-green-600';
-      case 'replan': return 'text-amber-600';
-      case 'infrastructure': return 'text-gray-500 italic';
-      default: return 'text-gray-700';
-    }
+  const getLogStyle = (type: string) => {
+    const map: Record<string, {fg:string; badge:string; label:string}> = {
+      error:       {fg:'text-red-600',    badge:'bg-red-50 text-red-600 border-red-200',         label:'ERROR'},
+      thought:     {fg:'text-violet-600', badge:'bg-violet-50 text-violet-600 border-violet-200', label:'THOUGHT'},
+      tool:        {fg:'text-blue-600',   badge:'bg-blue-50 text-blue-600 border-blue-200',       label:'TOOL'},
+      observation: {fg:'text-emerald-600',badge:'bg-emerald-50 text-emerald-600 border-emerald-200',label:'OBS'},
+      replan:      {fg:'text-amber-600',  badge:'bg-amber-50 text-amber-600 border-amber-200',    label:'REPLAN'},
+    };
+    return map[type] || {fg:'text-gray-700', badge:'bg-gray-50 text-gray-500 border-gray-200', label:'LOG'};
   };
+
+  const [backendStatus, setBackendStatus] = useState<'checking'|'online'|'offline'>('checking');
 
   // Fetch task history
   useEffect(() => {
@@ -129,20 +133,18 @@ function AppContent() {
     const checkHealth = async () => {
       try {
         const res = await fetch(`${API_URL}/api/health`, {
-          headers: { 'X-API-Key': SYNOD_API_KEY }
+          headers: { 'X-API-Key': SYNOD_API_KEY },
+          signal: AbortSignal.timeout(8000)
         });
+        setBackendStatus(res.ok ? 'online' : 'offline');
         if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Backend health check failed with status ${res.status}: ${text}`);
-        }
-        const data = await res.json();
-        console.log('Backend health:', data);
-        if (!data.components_ready) {
-          setError('Backend is running but core components failed to initialize. Check server logs.');
+          setError(`Backend returned ${res.status}`);
+        } else {
+          setError(null);
         }
       } catch (err) {
-        console.error('Backend unreachable:', err);
-        setError(`Backend is unreachable: ${err instanceof Error ? err.message : String(err)}. Please ensure the server is running on port 8000.`);
+        setBackendStatus('offline');
+        setError(`Cannot reach backend at "${API_URL || '(empty)'}". Set VITE_API_URL on Render.`);
       }
     };
     checkHealth();
@@ -352,15 +354,18 @@ function AppContent() {
                 <Monitor className="w-4 h-4 text-gray-400" />
                 <span className="text-sm font-medium">Toggle Theme</span>
               </button>
-              <button onClick={() => navigate('/settings/integrations')} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+              <button onClick={() => navigate('/settings/account')}
+                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-gray-50 transition-colors group">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                   {user.displayName?.[0] || 'A'}
                 </div>
-                <div className="flex-1 text-left overflow-hidden">
-                  <p className="text-sm font-bold truncate">{user.displayName}</p>
-                  <p className="text-[10px] text-gray-400 font-medium truncate">Personal Edition</p>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-xs font-semibold text-gray-900 truncate">
+                    {user.displayName}
+                  </p>
+                  <p className="text-[10px] text-gray-400">Personal Edition</p>
                 </div>
-                <Settings className="w-4 h-4 text-gray-400" />
+                <Settings className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
             </div>
           </aside>
@@ -372,6 +377,19 @@ function AppContent() {
                 <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-500">
                   <Menu className="w-5 h-5" />
                 </button>
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border uppercase tracking-wider ${
+                  backendStatus === 'online'   ? 'bg-green-50 text-green-700 border-green-200' :
+                  backendStatus === 'offline'  ? 'bg-red-50 text-red-700 border-red-200' :
+                                                 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    backendStatus === 'online'  ? 'bg-green-500' :
+                    backendStatus === 'offline' ? 'bg-red-500' : 'bg-amber-400 animate-pulse'
+                  }`} />
+                  <span className="hidden sm:inline">
+                    {backendStatus === 'checking' ? 'Connecting' : backendStatus}
+                  </span>
+                </div>
                 {taskId && (
                   <div className={`flex items-center gap-1.5 px-2 py-1 sm:px-2.5 rounded-md text-[10px] sm:text-xs font-bold uppercase tracking-wider border ${getStatusColor(status)}`}>
                     {status === 'RUNNING' && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -415,20 +433,30 @@ function AppContent() {
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                       {[
-                        "Build a React weather dashboard using Tailwind",
-                        "Write a Python script to scrape HackerNews",
-                        "Create a full-stack Next.js app with Supabase",
-                        "Analyze this dataset and generate a report"
-                      ].map((prompt, i) => (
+                        { emoji: '⚡', text: 'Build a React weather dashboard', hint: 'Tailwind + live API integration' },
+                        { emoji: '🐍', text: 'Write a Python HackerNews scraper', hint: 'Rate limiting + data export' },
+                        { emoji: '🚀', text: 'Create a Next.js app with Supabase', hint: 'Auth + DB + deployment ready' },
+                        { emoji: '📊', text: 'Analyze this dataset and make a report', hint: 'Charts, insights, summary doc' },
+                      ].map((example, i) => (
                         <motion.button 
                           key={i}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: i * 0.1 + 0.2 }}
-                          onClick={() => { setGoal(prompt); handleExecute(prompt); }}
-                          className="p-4 text-left border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/50 transition-all text-sm text-gray-600 font-medium"
+                          onClick={() => { setGoal(example.text); handleExecute(example.text); }}
+                          className="p-4 text-left rounded-2xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all"
                         >
-                          {prompt}
+                          <div className="flex items-start gap-3">
+                            <span className="text-xl">{example.emoji}</span>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">
+                                {example.text}
+                              </p>
+                              <p className="text-[11px] text-gray-400 mt-0.5">
+                                {example.hint}
+                              </p>
+                            </div>
+                          </div>
                         </motion.button>
                       ))}
                     </div>
@@ -443,9 +471,13 @@ function AppContent() {
                     className="max-w-3xl mx-auto space-y-6 pb-20"
                   >
                     {/* Goal Header */}
-                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Current Goal</h3>
-                      <p className="text-lg font-medium text-gray-900">{tasks.find(t => t.task_id === taskId)?.goal || goal}</p>
+                    <div className="flex items-start gap-3 p-4 bg-gray-900 rounded-2xl">
+                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                        <UserIcon className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <p className="text-sm text-white font-medium pt-0.5 leading-relaxed">
+                        {tasks.find(t => t.task_id === taskId)?.goal || goal}
+                      </p>
                     </div>
 
                     {/* Plan Display */}
@@ -492,7 +524,9 @@ function AppContent() {
 
                     {/* Main Chat Logs */}
                     <div className="space-y-6">
-                      {logs.filter(l => ['log', 'thought', 'observation', 'tool', 'error', 'replan', 'infrastructure'].includes(l.type) || !l.type).map((log, i) => (
+                      {logs.filter(l => ['log', 'thought', 'observation', 'tool', 'error', 'replan', 'infrastructure'].includes(l.type) || !l.type).map((log, i) => {
+                        const style = getLogStyle(log.type);
+                        return (
                         <motion.div 
                           key={i} 
                           initial={{ opacity: 0, y: 10 }}
@@ -511,22 +545,17 @@ function AppContent() {
                               <span className="text-xs font-bold text-gray-900 capitalize">{log.agent || 'System'}</span>
                               <span className="text-[10px] text-gray-400">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
                               {log.type && (
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-tighter ${
-                                  log.type === 'error' ? 'bg-red-100 text-red-700' :
-                                  log.type === 'thought' ? 'bg-purple-100 text-purple-700' :
-                                  log.type === 'tool' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {log.type}
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${style.badge}`}>
+                                  {style.label}
                                 </span>
                               )}
                             </div>
-                            <div className={`text-sm leading-relaxed ${getLogColor(log.type)}`}>
+                            <div className={`text-sm leading-relaxed ${style.fg}`}>
                               {log.text}
                             </div>
                           </div>
                         </motion.div>
-                      ))}
+                      )})}
                       <div ref={logsEndRef} />
                     </div>
                   </motion.div>
@@ -535,22 +564,22 @@ function AppContent() {
             </div>
 
             {/* Input Area */}
-            <div className="p-4 bg-white border-t border-gray-100">
-              <div className="relative max-w-3xl mx-auto flex items-center gap-2">
+            <div className="bg-white border-t border-gray-200 p-4 shrink-0">
+              <div className="max-w-3xl mx-auto flex items-center gap-2.5">
                 <input
                   id="main-input"
                   type="text"
                   value={goal}
                   onChange={(e) => setGoal(e.target.value)}
-                  placeholder="Ask Awais Codex to do something..."
-                  className="flex-1 pl-4 pr-12 py-3.5 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleExecute()}
-                  disabled={status === 'RUNNING' || status === 'CONFIRM'}
+                  placeholder="Ask Awais Codex to build something…"
+                  disabled={status === 'RUNNING' || status === 'CONFIRM' || backendStatus === 'offline'}
+                  className="flex-1 py-3 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-all disabled:opacity-50 placeholder:text-gray-400"
                 />
-                <button 
-                  onClick={handleExecute}
-                  disabled={!goal.trim() || status === 'RUNNING' || status === 'CONFIRM'}
-                  className="absolute right-3 p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all"
+                <button
+                  onClick={() => handleExecute()}
+                  disabled={!goal.trim() || status === 'RUNNING' || status === 'CONFIRM' || backendStatus === 'offline'}
+                  className="p-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
                 >
                   <ArrowUp className="w-4 h-4" />
                 </button>

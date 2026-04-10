@@ -38,11 +38,11 @@ export default function IntegrationsSettings({ diagnostics, copyToClipboard, cop
   };
 
   const getStatus = (key: string) => {
-    if (apiKeys[key]) return 'Configured';
-    const serviceKey = key.toLowerCase().replace('_api_key', '').replace('_key', '').replace('_url', '');
-    if (diagnostics?.services?.[serviceKey] === true) return 'Verified';
-    if (diagnostics?.errors?.[serviceKey]) return 'Error';
-    if (diagnostics?.environment?.[key]) return 'Configured';
+    const svcKey = key.toLowerCase()
+      .replace('_api_key','').replace('_key','').replace('_url','');
+    if (diagnostics?.services?.[svcKey] === true) return 'Verified';
+    if (diagnostics?.errors?.[svcKey])            return 'Error';
+    if (diagnostics?.environment?.[key])           return 'Configured';
     return 'Not Configured';
   };
 
@@ -69,7 +69,7 @@ export default function IntegrationsSettings({ diagnostics, copyToClipboard, cop
           const error = diagnostics?.errors?.[key.toLowerCase().replace('_api_key', '').replace('_key', '').replace('_url', '')];
 
           return (
-            <div key={key} className="p-5 sm:p-6 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col gap-4 group hover:border-gray-300 transition-all">
+            <div key={key} className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col gap-4 group hover:border-gray-300 transition-all">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${status === 'Verified' ? 'bg-green-50' : status === 'Error' ? 'bg-red-50' : status === 'Configured' ? 'bg-blue-50' : 'bg-gray-50'}`}>
@@ -91,7 +91,7 @@ export default function IntegrationsSettings({ diagnostics, copyToClipboard, cop
                 </div>
               </div>
               
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <input
                     type={showKeys[key] ? "text" : "password"}
@@ -107,17 +107,14 @@ export default function IntegrationsSettings({ diagnostics, copyToClipboard, cop
                     {showKeys[key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <button 
-                  onClick={() => handleSaveKey(key)}
-                  className="px-4 py-2.5 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all active:scale-[0.98] text-sm flex items-center gap-2 min-w-[80px] justify-center"
-                >
+                <button onClick={() => handleSaveKey(key)}
+                  className="px-4 py-2.5 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all text-sm min-w-[80px] flex items-center justify-center gap-1.5 shrink-0">
                   {saving === key ? <Check className="w-4 h-4" /> : 'Save'}
                 </button>
               </div>
-              <p className="text-[10px] text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 mt-2">
-                ⚠️ Keys are saved locally for reference only.
-                To activate on the backend, add them to your 
-                environment variables.
+              <p className="text-[10px] text-amber-700 bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 leading-relaxed">
+                ⚠️ Saved locally for reference. To activate on the backend, 
+                add to Render environment variables.
               </p>
             </div>
           );

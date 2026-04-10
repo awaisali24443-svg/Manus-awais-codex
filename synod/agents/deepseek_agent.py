@@ -12,7 +12,7 @@ class DeepSeekAgent:
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
         self.model = "deepseek-reasoner"
         self.api_url = "https://api.deepseek.com/chat/completions"
-        self.timeout = 60.0  # longer for deep reasoning
+        self.timeout = 90.0  # longer for deep reasoning
         
     async def reason(self, problem: str, context: str) -> str:
         """
@@ -52,4 +52,10 @@ class DeepSeekAgent:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(self.api_url, headers=headers, json=payload)
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            data = response.json()
+            message = data["choices"][0]["message"]
+            content = message.get("content") or ""
+            reasoning = message.get("reasoning_content") or ""
+            if reasoning and not content.startswith("<thought>"):
+                content = f"<thought>{reasoning}</thought>\n{content}"
+            return content

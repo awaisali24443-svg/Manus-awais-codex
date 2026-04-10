@@ -86,16 +86,18 @@ def initialize_firebase():
 
 initialize_firebase()
 
-# Get database ID from config if available
-config_path = os.path.join(os.path.dirname(__file__), "../../firebase-applet-config.json")
-database_id = "(default)"
-if os.path.exists(config_path):
-    try:
-        with open(config_path, "r") as f:
-            config_data = json.load(f)
-            database_id = config_data.get("firestoreDatabaseId", "(default)")
-    except Exception:
-        pass
+# Get database ID from environment or config
+database_id = os.getenv("FIREBASE_DATABASE_ID")
+if not database_id:
+    config_path = os.path.join(os.path.dirname(__file__), "../../firebase-applet-config.json")
+    database_id = "(default)"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config_data = json.load(f)
+                database_id = config_data.get("firestoreDatabaseId", "(default)")
+        except Exception:
+            pass
 
 try:
     db_client = firestore.client(database=database_id)
