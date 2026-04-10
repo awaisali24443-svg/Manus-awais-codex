@@ -13,8 +13,8 @@ class MasterAgent:
     def __init__(self) -> None:
         self.api_key = os.getenv("GROQ_API_KEY")
         self.gemini_key = os.getenv("GEMINI_API_KEY")
-        # Updated to April 2026 flagship models: Gemini 4 Ultra or Llama 4 405B
-        self.model = "gemini-4-ultra" if self.gemini_key else "llama-4-405b-preview"
+        # Updated to April 2026 flagship models: Gemini 1.5 Pro or Llama 3.3 70B
+        self.model = "gemini-1.5-pro" if self.gemini_key else "llama-3.3-70b-versatile"
         self.api_url = "https://generativelanguage.googleapis.com/v1beta/models" if self.gemini_key else "https://api.groq.com/openai/v1/chat/completions"
         self.timeout = 60.0
         self.global_memory = GlobalMemory()

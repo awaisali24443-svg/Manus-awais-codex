@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class Embedder:
     def __init__(self) -> None:
         self.api_key = os.getenv("HF_API_KEY") or os.getenv("HUGGINGFACE_API_KEY")
-        self.model_id = "microsoft/harrier-oss-v1-0.6b"
+        self.model_id = "sentence-transformers/all-MiniLM-L6-v2"
         self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{self.model_id}"
         self.headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 

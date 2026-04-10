@@ -25,7 +25,14 @@ import CommandPalette from './components/CommandPalette';
 // FIXED: Never strip the onrender.com URL.
 // The old code caused all fetch calls to go to '' (the frontend 
 // host) instead of the backend, producing "backend not reachable".
-const API_URL = import.meta.env.VITE_API_URL || '';
+let API_URL = import.meta.env.VITE_API_URL || '';
+if (API_URL.includes('backemd')) {
+  API_URL = API_URL.replace('backemd', 'backend');
+}
+// In local development, force using the local proxy to avoid CORS issues with the remote backend
+if (import.meta.env.DEV) {
+  API_URL = '';
+}
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
@@ -123,6 +130,14 @@ function AppContent() {
         setTasks(data.tasks || []);
       } catch (err) {
         console.error('Failed to fetch tasks', err);
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          setLogs(prev => [...prev, {
+            type: 'error',
+            text: `Network error: Failed to fetch tasks. If you are using a custom backend URL (${API_URL}), check for typos or CORS issues.`,
+            timestamp: Date.now(),
+            agent: 'system'
+          }]);
+        }
       }
     };
     fetchTasks();
@@ -261,10 +276,15 @@ function AppContent() {
       console.error('Execution error:', err);
       setStatus('FAIL');
       if (!taskId) setTaskId('error');
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      
+      let errorMsg = err instanceof Error ? err.message : String(err);
+      if (err instanceof TypeError && errorMsg === 'Failed to fetch') {
+        errorMsg = `Network error: Failed to fetch. Please verify that your backend is running and the URL (${API_URL || 'localhost'}) is correct without typos.`;
+      }
+      
       setLogs(prev => [...prev, { 
         type: 'error', 
-        text: `Execution failed: ${errorMsg}. (Check if the backend is running and reachable at ${API_URL || '/api'})`, 
+        text: `Execution failed: ${errorMsg}`, 
         timestamp: Date.now(), 
         agent: 'system' 
       }]);

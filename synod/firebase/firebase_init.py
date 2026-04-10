@@ -99,9 +99,23 @@ if not database_id:
         except Exception:
             pass
 
+# Only attempt to initialize Firestore if we have explicit credentials
+# This prevents hanging on the metadata server in environments without ADC
+has_explicit_creds = bool(
+    (os.getenv("FIREBASE_PROJECT_ID") and os.getenv("FIREBASE_CLIENT_EMAIL") and os.getenv("FIREBASE_PRIVATE_KEY")) or
+    os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+)
+
 try:
-    db_client = firestore.client(database=database_id)
-    print(f"Firestore client initialized for database: {database_id}")
+    if has_explicit_creds:
+        if database_id == "(default)":
+            db_client = firestore.client()
+        else:
+            db_client = firestore.client(database=database_id)
+        print(f"Firestore client initialized for database: {database_id}")
+    else:
+        print("Skipping Firestore initialization: No explicit credentials provided (set FIREBASE_PRIVATE_KEY or GOOGLE_APPLICATION_CREDENTIALS).")
+        db_client = None
 except Exception as e:
     print(f"Failed to initialize Firestore client: {e}")
     db_client = None

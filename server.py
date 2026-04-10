@@ -72,22 +72,25 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(ping_services())
     
     # On startup: recover orphaned tasks
-    try:
-        if task_manager.tasks_collection:
-            docs = task_manager.tasks_collection.stream()
-            for doc in docs:
-                data = doc.to_dict()
-                if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
-                    task_manager.tasks_collection.document(
-                        data["task_id"]
-                    ).update({
-                        "status": "FAIL",
-                        "logs": firestore.ArrayUnion(
-                            ["Task marked FAIL: server restarted during execution"]
-                        )
-                    })
-    except Exception as e:
-        print(f"Startup recovery failed: {e}")
+    def recover_tasks():
+        try:
+            if task_manager and task_manager.tasks_collection:
+                docs = task_manager.tasks_collection.stream()
+                for doc in docs:
+                    data = doc.to_dict()
+                    if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
+                        task_manager.tasks_collection.document(
+                            data["task_id"]
+                        ).update({
+                            "status": "FAIL",
+                            "logs": firestore.ArrayUnion(
+                                ["Task marked FAIL: server restarted during execution"]
+                            )
+                        })
+        except Exception as e:
+            print(f"Startup recovery failed: {e}")
+
+    asyncio.create_task(asyncio.to_thread(recover_tasks))
     yield
 
 app = FastAPI(title="Synod API", lifespan=lifespan)
@@ -117,7 +120,7 @@ if frontend_url:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -376,6 +379,9 @@ def health_check():
 @app.get("/api/tasks")
 def list_tasks(uid: str = None, api_key: str = Depends(get_api_key)):
     # Firestore query for tasks
+    if not task_manager or not task_manager.tasks_collection:
+        return {"tasks": []}
+        
     query = task_manager.tasks_collection
     if uid:
         query = query.where("uid", "==", uid)
