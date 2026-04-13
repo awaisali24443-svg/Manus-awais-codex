@@ -28,7 +28,13 @@ import CommandPalette from './components/CommandPalette';
 // FIXED: Use VITE_API_URL directly. Never override or strip it.
 // In dev, Vite's proxy (/api → localhost:8000) handles routing automatically.
 // In production (Render), VITE_API_URL must be set to your backend URL.
-const API_URL = import.meta.env.VITE_API_URL || '';
+let API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+// FIXED: In AI Studio preview, if VITE_API_URL is set to localhost, it will fail in the browser.
+// We force it to empty string so it uses the Vite proxy.
+if (API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) {
+  console.warn(`VITE_API_URL ("${API_URL}") points to localhost. Forcing to empty string to use Vite proxy.`);
+  API_URL = '';
+}
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
@@ -126,10 +132,11 @@ function AppContent() {
         setTasks(data.tasks || []);
       } catch (err) {
         console.error('Failed to fetch tasks', err);
+        setBackendStatus('offline');
         if (err instanceof TypeError && err.message === 'Failed to fetch') {
           setLogs(prev => [...prev, {
             type: 'error',
-            text: `Network error: Failed to fetch tasks. If you are using a custom backend URL (${API_URL}), check for typos or CORS issues.`,
+            text: `Network error: Failed to fetch tasks. If you are using a custom backend URL ("${API_URL}"), check for typos or CORS issues. In AI Studio preview, VITE_API_URL should usually be empty.`,
             timestamp: Date.now() / 1000,
             agent: 'system'
           }]);
@@ -143,6 +150,7 @@ function AppContent() {
   useEffect(() => {
     const checkHealth = async () => {
       try {
+        console.log(`Checking backend health at: "${API_URL || '(proxy)'}/api/health"`);
         const res = await fetch(`${API_URL}/api/health`, {
           headers: { 'X-API-Key': SYNOD_API_KEY },
           signal: AbortSignal.timeout(8000)
@@ -150,12 +158,20 @@ function AppContent() {
         setBackendStatus(res.ok ? 'online' : 'offline');
         if (!res.ok) {
           setError(`Backend returned ${res.status}`);
+          console.error(`Health check failed with status: ${res.status}`);
         } else {
           setError(null);
+          console.log('Backend is online.');
         }
       } catch (err) {
         setBackendStatus('offline');
-        setError(`Cannot reach backend at "${API_URL || '(empty)'}". Set VITE_API_URL on Render.`);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error('Health check error:', err);
+        setError(`Cannot reach backend at "${API_URL || '(proxy)'}". Error: ${errorMsg}`);
+        
+        if (err instanceof TypeError && errorMsg === 'Failed to fetch') {
+          console.error('This is a network error. Possible causes: 1. Backend not running. 2. Proxy misconfigured. 3. CORS issue. 4. Mixed content (HTTPS/HTTP).');
+        }
       }
     };
     checkHealth();
