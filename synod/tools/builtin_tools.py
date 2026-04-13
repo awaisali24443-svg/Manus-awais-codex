@@ -166,6 +166,8 @@ def git_operations(action: str, repo_url: str = "", token: str = "", message: st
         if action == "clone":
             res = subprocess.run(["git", "clone", auth_url, repo_dir], capture_output=True, text=True, timeout=9.0)
         elif action == "pull":
+            # Temporarily set remote URL with token for pull
+            subprocess.run(["git", "-C", repo_dir, "remote", "set-url", "origin", auth_url], capture_output=True, text=True, timeout=5.0)
             res = subprocess.run(["git", "-C", repo_dir, "pull"], capture_output=True, text=True, timeout=9.0)
         elif action == "commit":
             subprocess.run(["git", "-C", repo_dir, "add", "."], capture_output=True, text=True, timeout=9.0)
@@ -173,6 +175,8 @@ def git_operations(action: str, repo_url: str = "", token: str = "", message: st
             if res.returncode != 0 and "nothing to commit" in res.stdout:
                 return "Nothing to commit, working tree clean."
         elif action == "push":
+            # Temporarily set remote URL with token for push
+            subprocess.run(["git", "-C", repo_dir, "remote", "set-url", "origin", auth_url], capture_output=True, text=True, timeout=5.0)
             res = subprocess.run(["git", "-C", repo_dir, "push"], capture_output=True, text=True, timeout=9.0)
         else:
             return "Error: Invalid git action. Use clone, pull, commit, or push."

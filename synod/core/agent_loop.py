@@ -283,14 +283,14 @@ class AgentLoop:
                     # Check if it's actually sensitive (e.g. rm, push, etc)
                     is_sensitive = False
                     if parsed["tool_name"] == "run_bash":
-                        cmd = parsed["tool_params"].get("command", "").lower()
+                        cmd = (parsed["tool_params"] or {}).get("command", "").lower()
                         if any(x in cmd for x in ["rm -rf", "sudo ", "kill -9", "mkfs", "dd if="]):
                             is_sensitive = True
                     elif parsed["tool_name"] == "git_operations":
-                        if parsed["tool_params"].get("action") in ["push", "commit"]:
+                        if (parsed["tool_params"] or {}).get("action") in ["push", "commit"]:
                             is_sensitive = True
                     elif parsed["tool_name"] in ["write_file", "edit_file"]:
-                        path_param = parsed["tool_params"].get("path", "") if parsed["tool_params"] else ""
+                        path_param = (parsed["tool_params"] or {}).get("path", "")
                         SYSTEM_PATHS = ["/etc/", "/usr/", "/bin/", "/sbin/", "/boot/"]
                         if any(path_param.startswith(p) for p in SYSTEM_PATHS):
                             is_sensitive = True

@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"uvicorn server:app --host 0.0.0.0 --port 8001\" \"vite\"",
-    "serve": "uvicorn server:app --reload",
+    "dev": "concurrently \"python3 -m uvicorn server:app --host 0.0.0.0 --port 8001\" \"vite\"",
+    "serve": "python3 -m uvicorn server:app --reload",
     "build": "vite build",
     "lint": "tsc --noEmit"
   },

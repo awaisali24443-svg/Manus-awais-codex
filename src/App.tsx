@@ -10,9 +10,9 @@ import {
   LogIn, User as UserIcon, Loader2, Image as ImageIcon, Command
 } from 'lucide-react';
 import { 
-  db, rtdb, doc, onSnapshot, ref, onValue, collection
+  db, rtdb, doc, onSnapshot, ref, onValue
 } from './firebase';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import SettingsLayout from './components/SettingsLayout';
 import AccountSettings from './components/settings/AccountSettings';
 import IntegrationsSettings from './components/settings/IntegrationsSettings';
@@ -25,14 +25,10 @@ import CommandPalette from './components/CommandPalette';
 // FIXED: Never strip the onrender.com URL.
 // The old code caused all fetch calls to go to '' (the frontend 
 // host) instead of the backend, producing "backend not reachable".
-let API_URL = import.meta.env.VITE_API_URL || '';
-if (API_URL.includes('backemd')) {
-  API_URL = API_URL.replace('backemd', 'backend');
-}
-// In local development, force using the local proxy to avoid CORS issues with the remote backend
-if (import.meta.env.DEV) {
-  API_URL = '';
-}
+// FIXED: Use VITE_API_URL directly. Never override or strip it.
+// In dev, Vite's proxy (/api → localhost:8000) handles routing automatically.
+// In production (Render), VITE_API_URL must be set to your backend URL.
+const API_URL = import.meta.env.VITE_API_URL || '';
 const SYNOD_API_KEY = import.meta.env.VITE_SYNOD_API_KEY || 'local-dev-key';
 
 // Mock user for Personal Edition
@@ -134,7 +130,7 @@ function AppContent() {
           setLogs(prev => [...prev, {
             type: 'error',
             text: `Network error: Failed to fetch tasks. If you are using a custom backend URL (${API_URL}), check for typos or CORS issues.`,
-            timestamp: Date.now(),
+            timestamp: Date.now() / 1000,
             agent: 'system'
           }]);
         }
@@ -243,10 +239,16 @@ function AppContent() {
   const handleExecute = async (overrideGoal?: string) => {
     const finalGoal = overrideGoal || goal;
     if (!finalGoal.trim()) return;
+    // FIXED: Guard programmatic calls (example prompts) as well as button clicks
+    if (backendStatus === 'offline') {
+      setError(`Backend is offline. Set VITE_API_URL in Render → Environment Variables.`);
+      return;
+    }
     setStatus('RUNNING');
-    setLogs([{ type: 'info', text: `Initializing task: ${finalGoal}`, timestamp: Date.now(), agent: 'system' }]);
+    setLogs([{ type: 'info', text: `Initializing task: ${finalGoal}`, timestamp: Date.now() / 1000, agent: 'system' }]);
     setPlan([]);
     setScreenshot(null);
+    setPreviewUrl(null);
 
     try {
       const res = await fetch(`${API_URL}/api/tasks`, {
@@ -285,7 +287,7 @@ function AppContent() {
       setLogs(prev => [...prev, { 
         type: 'error', 
         text: `Execution failed: ${errorMsg}`, 
-        timestamp: Date.now(), 
+        timestamp: Date.now() / 1000, 
         agent: 'system' 
       }]);
     }
@@ -340,7 +342,7 @@ function AppContent() {
             
             <div className="p-3">
               <button 
-                onClick={() => { setTaskId(null); setGoal(''); setLogs([]); setPlan([]); setScreenshot(null); setStatus('IDLE'); if(window.innerWidth < 1024) setSidebarOpen(false); }}
+                onClick={() => { setTaskId(null); setGoal(''); setLogs([]); setPlan([]); setScreenshot(null); setStatus('IDLE'); setPreviewUrl(null); if(window.innerWidth < 1024) setSidebarOpen(false); }}
                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-sm transition-colors border border-blue-200/50 shadow-sm"
               >
                 <Play className="w-4 h-4" /> New Task
@@ -463,7 +465,7 @@ function AppContent() {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: i * 0.1 + 0.2 }}
-                          onClick={() => { setGoal(example.text); handleExecute(example.text); }}
+                          onClick={() => { if(backendStatus !== 'offline'){ setGoal(example.text); handleExecute(example.text); } }}
                           className="p-4 text-left rounded-2xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all"
                         >
                           <div className="flex items-start gap-3">

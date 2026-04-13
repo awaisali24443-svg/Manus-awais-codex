@@ -285,11 +285,16 @@ class AgentOrchestrator:
         return chain.get(current, "logic_agent")
 
     def _enrich_with_shared_context(self, context: str, task_id: str) -> str:
+        # FIXED: BUG 18 - Limit context size to prevent token overflow
+        if len(context) > 6000:
+            return context
+            
         findings = self._shared_context.get(task_id, [])
         if not findings:
             return context
+        # FIXED: BUG 18 - Truncate findings and limit to last 3
         findings_text = "\n".join(
-            f"  • {f}" for f in findings[-5:]
+            f"  • {f[:100]}..." if len(f) > 100 else f"  • {f}" for f in findings[-3:]
         )
         return (
             f"{context}\n\n"

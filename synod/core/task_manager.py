@@ -7,13 +7,19 @@ from synod.memory.local_memory import LocalMemory
 
 class TaskManager:
     def __init__(self) -> None:
-        try:
-            from synod.firebase.firebase_init import db_client
-            self.tasks_collection = db_client.collection("tasks") if db_client else None
-        except Exception as e:
-            print(f"Failed to initialize TaskManager Firestore collection: {e}")
-            self.tasks_collection = None
+        self._tasks_collection = None
         self.local_memory = LocalMemory()
+
+    @property
+    def tasks_collection(self):
+        if self._tasks_collection is None:
+            try:
+                from synod.firebase.firebase_init import db_client
+                if db_client:
+                    self._tasks_collection = db_client.collection("tasks")
+            except Exception as e:
+                print(f"Failed to initialize TaskManager Firestore collection: {e}")
+        return self._tasks_collection
 
     def _dict_to_task(self, data: dict) -> TaskState:
         task = TaskState(

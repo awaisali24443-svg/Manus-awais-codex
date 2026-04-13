@@ -7,3 +7,10 @@ coverage/
 .env*
 !.env.example
 firebase-applet-config.json
+
+# Python and Backend
+get-pip.py
+*.pyc
+__pycache__/
+workspace/
+.env

@@ -4,6 +4,29 @@ import firebase_admin
 from firebase_admin import credentials, firestore, db
 from supabase import create_client, Client
 
+def clean_private_key(key: str) -> str:
+    if not key:
+        return ""
+    clean_key = key.strip().strip('"').strip("'")
+    clean_key = clean_key.replace('\\n', '\n')
+    lines = [line.strip() for line in clean_key.split('\n') if line.strip()]
+    
+    if lines:
+        if not lines[0].startswith('-----BEGIN PRIVATE KEY-----'):
+            if 'BEGIN PRIVATE KEY' in lines[0]:
+                lines[0] = '-----BEGIN PRIVATE KEY-----'
+            else:
+                lines.insert(0, '-----BEGIN PRIVATE KEY-----')
+        
+        if not lines[-1].startswith('-----END PRIVATE KEY-----'):
+            if 'END PRIVATE KEY' in lines[-1]:
+                lines[-1] = '-----END PRIVATE KEY-----'
+            else:
+                lines.append('-----END PRIVATE KEY-----')
+        
+        return '\n'.join(lines) + '\n'
+    return key
+
 def initialize_firebase():
     if not firebase_admin._apps:
         project_id = os.getenv("FIREBASE_PROJECT_ID")
@@ -23,25 +46,7 @@ def initialize_firebase():
 
         if project_id and client_email and private_key:
             print(f"Initializing Firebase with Service Account for project: {project_id}")
-            # Aggressive cleaning for Render environment variables
-            clean_key = private_key.strip().strip('"').strip("'")
-            clean_key = clean_key.replace('\\n', '\n')
-            lines = [line.strip() for line in clean_key.split('\n') if line.strip()]
-            
-            if lines:
-                if not lines[0].startswith('-----BEGIN PRIVATE KEY-----'):
-                    if 'BEGIN PRIVATE KEY' in lines[0]:
-                        lines[0] = '-----BEGIN PRIVATE KEY-----'
-                    else:
-                        lines.insert(0, '-----BEGIN PRIVATE KEY-----')
-                
-                if not lines[-1].startswith('-----END PRIVATE KEY-----'):
-                    if 'END PRIVATE KEY' in lines[-1]:
-                        lines[-1] = '-----END PRIVATE KEY-----'
-                    else:
-                        lines.append('-----END PRIVATE KEY-----')
-                
-                private_key = '\n'.join(lines) + '\n'
+            private_key = clean_private_key(private_key)
 
             try:
                 cred = credentials.Certificate({
@@ -86,18 +91,8 @@ def initialize_firebase():
 
 initialize_firebase()
 
-# Get database ID from environment or config
-database_id = os.getenv("FIREBASE_DATABASE_ID")
-if not database_id:
-    config_path = os.path.join(os.path.dirname(__file__), "../../firebase-applet-config.json")
-    database_id = "(default)"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
-                config_data = json.load(f)
-                database_id = config_data.get("firestoreDatabaseId", "(default)")
-        except Exception:
-            pass
+# FIXED: BUG 9 - Backend database ID. Always use the default database.
+database_id = "(default)"
 
 # Only attempt to initialize Firestore if we have explicit credentials
 # This prevents hanging on the metadata server in environments without ADC
@@ -108,10 +103,9 @@ has_explicit_creds = bool(
 
 try:
     if has_explicit_creds:
-        if database_id == "(default)":
-            db_client = firestore.client()
-        else:
-            db_client = firestore.client(database=database_id)
+        # FIXED: BUG 10 - Simplify Firestore client initialization.
+        # Always use firebase_admin.firestore.client() which targets the default database.
+        db_client = firestore.client()
         print(f"Firestore client initialized for database: {database_id}")
     else:
         print("Skipping Firestore initialization: No explicit credentials provided (set FIREBASE_PRIVATE_KEY or GOOGLE_APPLICATION_CREDENTIALS).")

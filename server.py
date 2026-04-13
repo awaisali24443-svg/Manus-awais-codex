@@ -4,6 +4,8 @@ import urllib.request
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Dict, Any
 from contextlib import asynccontextmanager
@@ -61,8 +63,13 @@ async def lifespan(app: FastAPI):
     # Startup diagnostics
     print("="*50)
     print("SYNOD BACKEND STARTUP DIAGNOSTICS")
-    print(f"API_KEY: {'[SET]' if API_KEY != 'local-dev-key' else '[DEFAULT (local-dev-key)]'}")
-    print(f"Firestore: {'[CONNECTED]' if task_manager.tasks_collection else '[DISCONNECTED]'}")
+    # FIXED: BUG 11 - Use os.getenv instead of API_KEY to avoid UnboundLocalError
+    _api_key = os.getenv("SYNOD_API_KEY", "local-dev-key")
+    print(f"API_KEY: {'[SET]' if _api_key != 'local-dev-key' else '[DEFAULT (local-dev-key)]'}")
+    
+    # FIXED: BUG 13 - Safe access to task_manager
+    _tm = globals().get('task_manager')
+    print(f"Firestore: {'[CONNECTED]' if _tm and _tm.tasks_collection else '[DISCONNECTED]'}")
     print(f"Groq: {'[CONFIGURED]' if os.getenv('GROQ_API_KEY') else '[MISSING]'}")
     print(f"Anthropic: {'[CONFIGURED]' if os.getenv('ANTHROPIC_API_KEY') else '[MISSING]'}")
     print(f"Gemini: {'[CONFIGURED]' if os.getenv('GEMINI_API_KEY') else '[MISSING]'}")
@@ -74,12 +81,14 @@ async def lifespan(app: FastAPI):
     # On startup: recover orphaned tasks
     def recover_tasks():
         try:
-            if task_manager and task_manager.tasks_collection:
-                docs = task_manager.tasks_collection.stream()
+            # FIXED: BUG 12 - Safe access to task_manager in recover_tasks
+            _tm = globals().get('task_manager')
+            if _tm and _tm.tasks_collection:
+                docs = _tm.tasks_collection.stream()
                 for doc in docs:
                     data = doc.to_dict()
                     if data.get("status") in ["IDLE", "ANALYZE", "PLAN", "EXECUTE", "OBSERVE", "REFLECT"]:
-                        task_manager.tasks_collection.document(
+                        _tm.tasks_collection.document(
                             data["task_id"]
                         ).update({
                             "status": "FAIL",
@@ -183,6 +192,11 @@ async def get_batch_status(
 
 async def process_batch(batch_id: str):
     """Sequentially processes all items in a batch."""
+    # FIXED: BUG 14 - Guard against missing task_manager
+    if not task_manager:
+        print(f"Cannot process batch {batch_id}: task_manager not initialized")
+        return
+        
     while True:
         next_item = await task_queue.get_next_queued(batch_id)
         if not next_item:
@@ -359,10 +373,21 @@ async def confirm_task_action(task_id: str, confirmed: bool, api_key: str = Depe
 @app.get("/api/health")
 def health_check():
     try:
+        firestore_status = "disconnected"
+        # FIXED: BUG 13 - Safe access to task_manager in health_check
+        _tm = globals().get('task_manager')
+        if _tm:
+            if _tm.tasks_collection:
+                firestore_status = "connected"
+            else:
+                firestore_status = "no_collection"
+        else:
+            firestore_status = "no_manager"
+            
         return {
             "status": "ok",
-            "components_ready": task_manager is not None,
-            "firestore": "connected" if task_manager and task_manager.tasks_collection else "disconnected",
+            "components_ready": _tm is not None,
+            "firestore": firestore_status,
             "api_key_configured": API_KEY != "local-dev-key",
             "groq_configured": bool(os.getenv("GROQ_API_KEY")),
             "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
@@ -382,20 +407,26 @@ def list_tasks(uid: str = None, api_key: str = Depends(get_api_key)):
     if not task_manager or not task_manager.tasks_collection:
         return {"tasks": []}
         
-    query = task_manager.tasks_collection
-    if uid:
-        query = query.where("uid", "==", uid)
-    
-    docs = query.stream()
-    tasks = []
-    for doc in docs:
-        data = doc.to_dict()
-        tasks.append({
-            "task_id": data.get("task_id"),
-            "goal": data.get("goal"),
-            "status": data.get("status")
-        })
-    return {"tasks": tasks}
+    try:
+        query = task_manager.tasks_collection
+        if uid:
+            # FIXED: BUG 15 - Use google.cloud.firestore.FieldFilter
+            from google.cloud.firestore import FieldFilter
+            query = query.where(filter=FieldFilter("uid", "==", uid))
+        
+        docs = query.stream()
+        tasks = []
+        for doc in docs:
+            data = doc.to_dict()
+            tasks.append({
+                "task_id": data.get("task_id"),
+                "goal": data.get("goal"),
+                "status": data.get("status")
+            })
+        return {"tasks": tasks}
+    except Exception as e:
+        print(f"Error listing tasks from Firestore: {e}")
+        return {"tasks": [], "error": str(e)}
 
 @app.get("/api/diagnostics")
 async def get_diagnostics(api_key: str = Depends(get_api_key)):
@@ -531,10 +562,30 @@ async def get_diagnostics(api_key: str = Depends(get_api_key)):
 
     return checks
 
+# Serve static files from the 'dist' directory
+if os.path.exists("dist"):
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+
 @app.get("/")
 async def root():
+    # If dist/index.html exists, serve it for the root path
+    index_path = os.path.join("dist", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     return {
       "status": "online",
       "service": "Synod Backend API",
       "version": "1.0.0"
     }
+
+# SPA Fallback for all other routes
+if os.path.exists("dist"):
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        
+        index_path = os.path.join("dist", "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Not found")

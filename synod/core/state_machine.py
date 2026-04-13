@@ -18,6 +18,7 @@ class State(Enum):
 class TaskState:
     task_id: str
     goal: str
+    uid: str = ""
     current_step: str = ""
     plan: List[Any] = field(default_factory=list)
     status: State = State.IDLE

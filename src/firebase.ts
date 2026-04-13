@@ -1,8 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, 
+import { getAuth, GoogleAuthProvider, signInWithPopup,
          onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc, 
-         collection, query, where, getDocs, getDoc, 
+import { getFirestore, doc, onSnapshot, setDoc, updateDoc,
+         collection, query, where, getDocs, getDoc,
          deleteDoc } from 'firebase/firestore';
 import { getDatabase, ref, onValue } from 'firebase/database';
 
@@ -16,13 +16,18 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db   = getFirestore(app);  // DEFAULT database
+
+// FIXED: Use DEFAULT Firestore database — no second argument.
+// The old code passed VITE_FIREBASE_DATABASE_ID (a named AI Studio DB).
+// The backend always writes to the DEFAULT database.
+// Mismatch = frontend listeners see zero tasks and zero logs.
+export const db   = getFirestore(app);
 export const auth = getAuth(app);
 export const rtdb = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export { 
-  doc, onSnapshot, setDoc, updateDoc, collection, query, 
+export {
+  doc, onSnapshot, setDoc, updateDoc, collection, query,
   where, getDocs, getDoc, deleteDoc, ref, onValue,
   signInWithPopup, onAuthStateChanged
 };
